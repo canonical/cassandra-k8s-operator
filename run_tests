@@ -1,0 +1,21 @@
+#!/bin/sh -e
+# Copyright 2020 dylan
+# See LICENSE file for licensing details.
+
+if [ -z "$VIRTUAL_ENV" -a -d venv/ ]; then
+    . venv/bin/activate
+fi
+
+if [ -z "$PYTHONPATH" ]; then
+    export PYTHONPATH=src
+else
+    export PYTHONPATH="src:$PYTHONPATH"
+fi
+
+flake8 || exit $?
+black --diff --check src tests || exit $?
+if [ $? -eq 0 ]; then
+    python3 -m pytest -v "$@"
+else
+    python3 -m unittest -v "$@"
+fi
