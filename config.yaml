@@ -1,0 +1,8 @@
+# Copyright 2020 dylan
+# See LICENSE file for licensing details.
+
+options:
+  image_path:
+    default: 'cassandra'
+    description: The docker image to use
+    type: string
