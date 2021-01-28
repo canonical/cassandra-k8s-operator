@@ -7,6 +7,9 @@ series:
 provides:
   cql:
     interface: cql
+peers:
+  cassandra:
+    interface: cassandra
 storage:
   data:
     type: filesystem

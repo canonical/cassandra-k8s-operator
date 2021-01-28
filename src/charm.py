@@ -79,15 +79,39 @@ class CassandraOperatorCharm(CharmBase):
                     #'kubernetes': # probes here
                     "envConfig": {
                         "CASSANDRA_CLUSTER_NAME": "charm-cluster",
-                        "CASSANDRA_SEEDS": UNIT_ADDRESS.format(
-                            self.meta.name, 0, self.meta.name, self.model.name
-                        ),
+                        "CASSANDRA_SEEDS": self.seeds(),
                         "CASSANDRA_LISTEN_ADDRESS": "listen-addr",
                     },
                 }
             ],
         }
         return spec
+
+    def seeds(self):
+        seeds = UNIT_ADDRESS.format(self.meta.name, 0, self.meta.name, self.model.name)
+        num_units = self.num_units()
+        if num_units >= 2:
+            seeds = (
+                seeds
+                + ","
+                + UNIT_ADDRESS.format(
+                    self.meta.name, 1, self.meta.name, self.model.name
+                )
+            )
+        if num_units >= 3:
+            seeds = (
+                seeds
+                + ","
+                + UNIT_ADDRESS.format(
+                    self.meta.name, 2, self.meta.name, self.model.name
+                )
+            )
+        return seeds
+
+    def num_units(self):
+        relation = self.model.get_relation("cassandra")
+        # The relation does not list ourself as a unit so we must add 1
+        return len(relation.units) + 1 if relation is not None else 1
 
 
 if __name__ == "__main__":
