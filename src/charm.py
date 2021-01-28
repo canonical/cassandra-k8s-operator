@@ -13,15 +13,28 @@ log = logging.getLogger(__name__)
 
 CQL_PORT = 9042
 CLUSTER_PORT = 7001
+UNIT_ADDRESS = "{}-{}.{}-endpoints.{}.svc.cluster.local"
 
 
 class CassandraOperatorCharm(CharmBase):
     def __init__(self, *args):
         super().__init__(*args)
-        self.framework.observe(self.on.config_changed, self._on_config_changed)
+        self.framework.observe(self.on.config_changed, self.on_config_changed)
+        self.framework.observe(self.on["cql"].relation_changed, self.on_cql_changed)
 
-    def _on_config_changed(self, _):
+    def on_config_changed(self, _):
         self.configure()
+
+    def on_cql_changed(self, event):
+        self.update_cql(event.relation)
+
+    def update_cql(self, relation):
+        if self.unit.is_leader():
+            log.info("Setting relation data")
+            if str(self.model.config["port"]) != relation.data[self.app].get(
+                "port", None
+            ):
+                relation.data[self.app]["port"] = str(self.model.config["port"])
 
     def configure(self):
         if not self.unit.is_leader():
@@ -50,6 +63,11 @@ class CassandraOperatorCharm(CharmBase):
                 {
                     "name": self.app.name,
                     "imageDetails": image_details,
+                    "command": [
+                        "sh",
+                        "-c",
+                        "echo $(cat /etc/hosts | grep cassandra-endpoints | cut -f 1) listen-addr >> /etc/hosts && docker-entrypoint.sh",
+                    ],
                     "ports": [
                         {"containerPort": CQL_PORT, "name": "cql", "protocol": "TCP"},
                         {
@@ -57,8 +75,15 @@ class CassandraOperatorCharm(CharmBase):
                             "name": "cluster",
                             "protocol": "TCP",
                         },
-                    ]
-                    # 'kubernetes': # probes here
+                    ],
+                    #'kubernetes': # probes here
+                    "envConfig": {
+                        "CASSANDRA_CLUSTER_NAME": "charm-cluster",
+                        "CASSANDRA_SEEDS": UNIT_ADDRESS.format(
+                            self.meta.name, 0, self.meta.name, self.model.name
+                        ),
+                        "CASSANDRA_LISTEN_ADDRESS": "listen-addr",
+                    },
                 }
             ],
         }

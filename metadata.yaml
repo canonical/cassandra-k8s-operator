@@ -5,7 +5,7 @@ description: |
 series:
   - kubernetes
 provides:
-  database:
+  cql:
     interface: cql
 storage:
   data:
