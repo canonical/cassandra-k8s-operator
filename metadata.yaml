@@ -5,8 +5,11 @@ description: |
 series:
   - kubernetes
 provides:
-  database:
+  cql:
     interface: cql
+peers:
+  cassandra:
+    interface: cassandra
 storage:
   data:
     type: filesystem
