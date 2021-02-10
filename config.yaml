@@ -6,3 +6,6 @@ options:
     default: 'cassandra'
     description: The docker image to use
     type: string
+  port:
+    default: 9042
+    type: int
