@@ -11,7 +11,6 @@ from ops.model import ActiveStatus, MaintenanceStatus
 log = logging.getLogger(__name__)
 
 
-CQL_PORT = 9042
 CLUSTER_PORT = 7001
 UNIT_ADDRESS = "{}-{}.{}-endpoints.{}.svc.cluster.local"
 
@@ -24,6 +23,8 @@ class CassandraOperatorCharm(CharmBase):
 
     def on_config_changed(self, _):
         self.configure()
+        for relation in self.model.relations["cql"]:
+            self.update_cql(relation)
 
     def on_cql_changed(self, event):
         self.update_cql(event.relation)
@@ -66,17 +67,22 @@ class CassandraOperatorCharm(CharmBase):
                     "command": [
                         "sh",
                         "-c",
-                        "echo $(cat /etc/hosts | grep cassandra-endpoints | cut -f 1) listen-addr >> /etc/hosts && docker-entrypoint.sh",
+                        "echo $(cat /etc/hosts | grep cassandra-endpoints | cut -f 1) listen-addr"
+                        " >> /etc/hosts && docker-entrypoint.sh",
                     ],
                     "ports": [
-                        {"containerPort": CQL_PORT, "name": "cql", "protocol": "TCP"},
+                        {
+                            "containerPort": config["port"],
+                            "name": "cql",
+                            "protocol": "TCP",
+                        },
                         {
                             "containerPort": CLUSTER_PORT,
                             "name": "cluster",
                             "protocol": "TCP",
                         },
                     ],
-                    #'kubernetes': # probes here
+                    # 'kubernetes': # probes here
                     "envConfig": {
                         "CASSANDRA_CLUSTER_NAME": "charm-cluster",
                         "CASSANDRA_SEEDS": self.seeds(),
