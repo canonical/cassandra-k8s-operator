@@ -20,6 +20,8 @@ class CassandraOperatorCharm(CharmBase):
         super().__init__(*args)
         self.framework.observe(self.on.config_changed, self.on_config_changed)
         self.framework.observe(self.on["cql"].relation_changed, self.on_cql_changed)
+        self.framework.observe(self.on["cassandra"].relation_changed, self.on_cassandra_changed)
+        self.framework.observe(self.on["cassandra"].relation_departed, self.on_cassandra_departed)
 
     def on_config_changed(self, _):
         self.configure()
@@ -28,6 +30,12 @@ class CassandraOperatorCharm(CharmBase):
 
     def on_cql_changed(self, event):
         self.update_cql(event.relation)
+
+    def on_cassandra_changed(self, event):
+        self.configure()
+
+    def on_cassandra_departed(self, event):
+        self.configure()
 
     def update_cql(self, relation):
         if self.unit.is_leader():
