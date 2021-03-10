@@ -3,6 +3,7 @@
 # See LICENSE file for licensing details.
 
 import logging
+import yaml
 
 from ops.charm import CharmBase
 from ops.main import main
@@ -20,8 +21,12 @@ class CassandraOperatorCharm(CharmBase):
         super().__init__(*args)
         self.framework.observe(self.on.config_changed, self.on_config_changed)
         self.framework.observe(self.on["cql"].relation_changed, self.on_cql_changed)
-        self.framework.observe(self.on["cassandra"].relation_changed, self.on_cassandra_changed)
-        self.framework.observe(self.on["cassandra"].relation_departed, self.on_cassandra_departed)
+        self.framework.observe(
+            self.on["cassandra"].relation_changed, self.on_cassandra_changed
+        )
+        self.framework.observe(
+            self.on["cassandra"].relation_departed, self.on_cassandra_departed
+        )
 
     def on_config_changed(self, _):
         self.configure()
@@ -75,8 +80,8 @@ class CassandraOperatorCharm(CharmBase):
                     "command": [
                         "sh",
                         "-c",
-                        "echo $(cat /etc/hosts | grep cassandra-endpoints | cut -f 1) listen-addr"
-                        " >> /etc/hosts && docker-entrypoint.sh",
+                        "cp /mnt/cassandra.yaml /etc/cassandra/cassandra.yaml &&"
+                        "docker-entrypoint.sh",
                     ],
                     "ports": [
                         {
@@ -90,12 +95,20 @@ class CassandraOperatorCharm(CharmBase):
                             "protocol": "TCP",
                         },
                     ],
+                    "volumeConfig": [
+                        {
+                            "name": "config",
+                            "mountPath": "/mnt",
+                            # "mountPath": "/etc/charm/cassandra",
+                            "files": [
+                                {
+                                    "path": "cassandra.yaml",
+                                    "content": self.config_file(),
+                                }
+                            ],
+                        }
+                    ]
                     # 'kubernetes': # probes here
-                    "envConfig": {
-                        "CASSANDRA_CLUSTER_NAME": "charm-cluster",
-                        "CASSANDRA_SEEDS": self.seeds(),
-                        "CASSANDRA_LISTEN_ADDRESS": "listen-addr",
-                    },
                 }
             ],
         }
@@ -126,6 +139,27 @@ class CassandraOperatorCharm(CharmBase):
         relation = self.model.get_relation("cassandra")
         # The relation does not list ourself as a unit so we must add 1
         return len(relation.units) + 1 if relation is not None else 1
+
+    def config_file(self):
+        conf = {
+            "cluster_name": "charm-cluster",
+            "num_tokens": 256,
+            "listen_address": "0.0.0.0",
+            "start_native_transport": "true",
+            "native_transport_port": self.model.config["port"],
+            "seed_provider": [
+                {
+                    "class_name": "org.apache.cassandra.locator.SimpleSeedProvider",
+                    "parameters": [{"seeds": self.seeds()}],
+                }
+            ],
+            # Required configs
+            "commitlog_sync": "periodic",
+            "commitlog_sync_period_in_ms": 10000,
+            "partitioner": "org.apache.cassandra.dht.Murmur3Partitioner",
+            "endpoint_snitch": "GossipingPropertyFileSnitch",
+        }
+        return yaml.dump(conf)
 
 
 if __name__ == "__main__":
