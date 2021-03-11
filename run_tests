@@ -13,7 +13,6 @@ else
 fi
 
 flake8 || exit $?
-
 if [ "$1" == '--fix' ]; then
     black src tests
     shift
