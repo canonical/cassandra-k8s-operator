@@ -26,7 +26,7 @@ from ops.framework import StoredState
 from ops.main import main
 from ops.model import ActiveStatus, MaintenanceStatus
 
-log = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 
 CLUSTER_PORT = 7001
@@ -47,7 +47,7 @@ def status_catcher(func):
         try:
             func(self, *args, **kwargs)
         except DeferEventError as e:
-            log.info(f"Defering event {str(e.event)}")
+            logger.info(f"Defering event {str(e.event)}")
             e.event.defer()
 
     return new_func
@@ -94,7 +94,7 @@ class CassandraOperatorCharm(CharmBase):
 
     def update_cql(self, relation):
         if self.unit.is_leader():
-            log.info("Setting relation data")
+            logger.info("Setting relation data")
             if str(self.model.config["port"]) != relation.data[self.app].get(
                 "port", None
             ):
@@ -124,7 +124,7 @@ class CassandraOperatorCharm(CharmBase):
             try:
                 session = cluster.connect()
             except NoHostAvailable as e:
-                log.info(f"Caught exception {type(e)}:{e}")
+                logger.info(f"Caught exception {type(e)}:{e}")
                 raise DeferEventError(event)
             # Set system_auth replication here once we have pebble
             # See https://docs.datastax.com/en/cassandra-oss/3.0/cassandra/configuration/secureConfigNativeAuth.html
@@ -162,7 +162,7 @@ class CassandraOperatorCharm(CharmBase):
             try:
                 session = cluster.connect()
             except NoHostAvailable as e:
-                log.info(f"Caught exception {type(e)}:{e}")
+                logger.info(f"Caught exception {type(e)}:{e}")
                 raise DeferEventError(event)
             random_password = "".join(secrets.choice(alphabet) for i in range(20))
             session.execute(
@@ -176,19 +176,19 @@ class CassandraOperatorCharm(CharmBase):
 
     def configure(self):
         if not self.unit.is_leader():
-            log.debug("Unit is not leader. Cannot set pod spec.")
+            logger.debug("Unit is not leader. Cannot set pod spec.")
             self.unit.status = ActiveStatus()
             return
 
         self.unit.status = MaintenanceStatus("Building pod spec.")
-        log.debug("Building pod spec.")
+        logger.debug("Building pod spec.")
 
         pod_spec = self.build_pod_spec()
-        log.debug("Setting pod spec.")
+        logger.debug("Setting pod spec.")
         self.model.pod.set_spec(pod_spec)
 
         self.unit.status = ActiveStatus()
-        log.debug("Pod spec set successfully.")
+        logger.debug("Pod spec set successfully.")
 
     def build_pod_spec(self):
         config = self.model.config
