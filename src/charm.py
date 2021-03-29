@@ -176,15 +176,10 @@ class CassandraOperatorCharm(CharmBase):
 
     def configure(self):
         if not self.unit.is_leader():
-            logger.debug("Unit is not leader. Cannot set pod spec.")
             self.unit.status = ActiveStatus()
             return
 
-        self.unit.status = MaintenanceStatus("Building pod spec.")
-        logger.debug("Building pod spec.")
-
         pod_spec = self.build_pod_spec()
-        logger.debug("Setting pod spec.")
         self.model.pod.set_spec(pod_spec)
 
         self.unit.status = ActiveStatus()
