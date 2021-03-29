@@ -64,13 +64,13 @@ class CassandraOperatorCharm(CharmBase):
         self.framework.observe(self.on.config_changed, self.on_config_changed)
         self.framework.observe(self.on["cql"].relation_changed, self.on_cql_changed)
         self.framework.observe(
-            self.on["cassandra"].relation_joined, self.on_cassandra_joined
+            self.on["cassandra-peers"].relation_joined, self.on_cassandra_peers_joined
         )
         self.framework.observe(
-            self.on["cassandra"].relation_changed, self.on_cassandra_changed
+            self.on["cassandra_peers"].relation_changed, self.on_cassandra_peers_changed
         )
         self.framework.observe(
-            self.on["cassandra"].relation_departed, self.on_cassandra_departed
+            self.on["cassandra_peers"].relation_departed, self.on_cassandra_peers_departed
         )
 
     def on_config_changed(self, event):
@@ -82,14 +82,14 @@ class CassandraOperatorCharm(CharmBase):
         self.update_cql(event.relation)
 
     @status_catcher
-    def on_cassandra_joined(self, event):
+    def on_cassandra_peers_joined(self, event):
         if self.unit.is_leader():
             self.root_password(event)
 
-    def on_cassandra_changed(self, event):
+    def on_cassandra_peers_changed(self, event):
         self.configure()
 
-    def on_cassandra_departed(self, event):
+    def on_cassandra_peers_departed(self, event):
         self.configure()
 
     def update_cql(self, relation):
@@ -264,7 +264,7 @@ class CassandraOperatorCharm(CharmBase):
         return seeds
 
     def num_units(self):
-        relation = self.model.get_relation("cassandra")
+        relation = self.model.get_relation("cassandra-peers")
         # The relation does not list ourself as a unit so we must add 1
         return len(relation.units) + 1 if relation is not None else 1
 
@@ -278,7 +278,7 @@ class CassandraOperatorCharm(CharmBase):
 
     def cql_address(self, timeout=60):
         try:
-            return str(self.model.get_binding("cassandra").network.ingress_address)
+            return str(self.model.get_binding("cassandra-peers").network.ingress_address)
         except TypeError as e:
             if str(e) == "'NoneType' object is not iterable":
                 return None

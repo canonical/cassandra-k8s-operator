@@ -8,8 +8,8 @@ provides:
   cql:
     interface: cql
 peers:
-  cassandra:
-    interface: cassandra
+  cassandra-peers:
+    interface: cassandra-peers
 storage:
   data:
     type: filesystem
