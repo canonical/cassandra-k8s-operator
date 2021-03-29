@@ -285,7 +285,7 @@ class CassandraOperatorCharm(CharmBase):
 
     def config_file(self):
         conf = {
-            "cluster_name": "charm-cluster",
+            "cluster_name": f"juju-cluster-{self.app.name}",
             "num_tokens": 256,
             "listen_address": "0.0.0.0",
             "start_native_transport": "true",
