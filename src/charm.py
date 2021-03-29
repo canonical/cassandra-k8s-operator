@@ -70,7 +70,8 @@ class CassandraOperatorCharm(CharmBase):
             self.on["cassandra_peers"].relation_changed, self.on_cassandra_peers_changed
         )
         self.framework.observe(
-            self.on["cassandra_peers"].relation_departed, self.on_cassandra_peers_departed
+            self.on["cassandra_peers"].relation_departed,
+            self.on_cassandra_peers_departed,
         )
 
     def on_config_changed(self, event):
@@ -273,7 +274,9 @@ class CassandraOperatorCharm(CharmBase):
 
     def cql_address(self, timeout=60):
         try:
-            return str(self.model.get_binding("cassandra-peers").network.ingress_address)
+            return str(
+                self.model.get_binding("cassandra-peers").network.ingress_address
+            )
         except TypeError as e:
             if str(e) == "'NoneType' object is not iterable":
                 return None
