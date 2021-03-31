@@ -2,6 +2,7 @@
 # Copyright 2020 dylan
 # See LICENSE file for licensing details.
 
+import contextlib
 import functools
 import json
 import logging
@@ -174,6 +175,42 @@ class CassandraOperatorCharm(CharmBase):
             cluster.shutdown()
         self.stored.root_password = self.stored.root_password_secondary
         return self.stored.root_password
+
+    @contextlib.contextmanager
+    def cql_connection(self, event):
+        auth_provider = PlainTextAuthProvider(
+            username=ROOT_USER, password=self.root_password(event)
+        )
+        profile = ExecutionProfile(load_balancing_policy=RoundRobinPolicy())
+        cluster = Cluster(
+            [self.cql_address()],
+            port=self.model.config["port"],
+            auth_provider=auth_provider,
+            execution_profiles={EXEC_PROFILE_DEFAULT: profile},
+            protocol_version=CQL_PROTOCOL_VERSION,
+        )
+        try:
+            session = cluster.connect()
+            yield session
+        except NoHostAvailable as e:
+            logger.info(f"Caught exception {type(e)}:{e}")
+            raise DeferEventError(event)
+        finally:
+            cluster.shutdown
+
+    def create_user(self, event, user, password):
+        with self.cql_connection(event) as conn:
+            conn.execute(
+                f"CREATE ROLE IF NOT EXISTS {user} WITH PASSWORD = '{password}' AND LOGIN = true"
+            )
+
+    def create_db(self, event, db_name, user):
+        with self.cql_connection(event) as conn:
+            # Review replication strategy
+            conn.execute(
+                f"CREATE KEYSPACE IF NOT EXISTS {db_name} WITH REPLICATION = {{ 'class' : 'SimpleStrategy', 'replication_factor' : {self.goal_units()} }}"
+            )
+            conn.execute(f"GRANT ALL PERMISSIONS ON KEYSPACE {db_name} to {user}")
 
     def configure(self):
         if not self.unit.is_leader():
