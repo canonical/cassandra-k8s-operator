@@ -297,6 +297,7 @@ class CassandraOperatorCharm(CharmBase):
                 }
             ],
             "authenticator": "PasswordAuthenticator",
+            "authorizer": "CassandraAuthorizer",
             # Required configs
             "commitlog_sync": "periodic",
             "commitlog_sync_period_in_ms": 10000,
