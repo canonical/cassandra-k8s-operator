@@ -3,13 +3,17 @@
 # See LICENSE file for licensing details.
 
 import contextlib
-import functools
 import json
 import logging
-import secrets
-import string
 import subprocess
 import yaml
+
+from charms.cassandra.v1.cql import (
+    DeferEventError,
+    status_catcher,
+    generate_password,
+    CQLProvider,
+)
 
 from cassandra import ConsistencyLevel, InvalidRequest
 from cassandra.auth import PlainTextAuthProvider
@@ -36,24 +40,6 @@ CQL_PROTOCOL_VERSION = 4
 ROOT_USER = "charm_root"
 
 
-class DeferEventError(Exception):
-    def __init__(self, event):
-        super().__init__()
-        self.event = event
-
-
-def status_catcher(func):
-    @functools.wraps(func)
-    def new_func(self, *args, **kwargs):
-        try:
-            func(self, *args, **kwargs)
-        except DeferEventError as e:
-            logger.info(f"Defering event {str(e.event)}")
-            e.event.defer()
-
-    return new_func
-
-
 class CassandraOperatorCharm(CharmBase):
     stored = StoredState()
 
@@ -63,10 +49,8 @@ class CassandraOperatorCharm(CharmBase):
         # If the root_password() method partially completes we need to store the password while keeping self.stored.root_password empty
         self.stored.set_default(root_password_secondary="")
         self.framework.observe(self.on.config_changed, self.on_config_changed)
-        self.framework.observe(self.on["cql"].relation_changed, self.on_cql_changed)
-        self.framework.observe(
-            self.on["cassandra-peers"].relation_joined, self.on_cassandra_peers_joined
-        )
+        self.framework.observe(self.on.install, self.on_install)
+        self.framework.observe(self.on["cql"].relation_joined, self.on_cql_joined)
         self.framework.observe(
             self.on["cassandra_peers"].relation_changed, self.on_cassandra_peers_changed
         )
@@ -74,17 +58,17 @@ class CassandraOperatorCharm(CharmBase):
             self.on["cassandra_peers"].relation_departed,
             self.on_cassandra_peers_departed,
         )
+        self.provider = CQLProvider(self, "cql", self.provides(None))
 
     def on_config_changed(self, event):
         self.configure()
-        for relation in self.model.relations["cql"]:
-            self.update_cql(relation)
+        self.provider.update_port("cql", self.model.config["port"])
 
-    def on_cql_changed(self, event):
-        self.update_cql(event.relation)
+    def on_cql_joined(self, event):
+        self.provider.update_port("cql", self.model.config["port"])
 
     @status_catcher
-    def on_cassandra_peers_joined(self, event):
+    def on_install(self, event):
         if self.unit.is_leader():
             self.root_password(event)
 
@@ -93,14 +77,6 @@ class CassandraOperatorCharm(CharmBase):
 
     def on_cassandra_peers_departed(self, event):
         self.configure()
-
-    def update_cql(self, relation):
-        if self.unit.is_leader():
-            logger.info("Setting relation data")
-            if str(self.model.config["port"]) != relation.data[self.app].get(
-                "port", None
-            ):
-                relation.data[self.app]["port"] = str(self.model.config["port"])
 
     def root_password(self, event):
         if self.stored.root_password:
@@ -131,10 +107,7 @@ class CassandraOperatorCharm(CharmBase):
             # Set system_auth replication here once we have pebble
             # See https://docs.datastax.com/en/cassandra-oss/3.0/cassandra/configuration/secureConfigNativeAuth.html
             if not self.stored.root_password_secondary:
-                alphabet = string.ascii_letters + string.digits
-                self.stored.root_password_secondary = "".join(
-                    secrets.choice(alphabet) for i in range(20)
-                )
+                self.stored.root_password_secondary = generate_password()
             query = SimpleStatement(
                 f"CREATE ROLE {ROOT_USER} WITH PASSWORD = '{self.stored.root_password_secondary}' AND SUPERUSER = true AND LOGIN = true",
                 consistency_level=ConsistencyLevel.QUORUM,
@@ -166,7 +139,7 @@ class CassandraOperatorCharm(CharmBase):
             except NoHostAvailable as e:
                 logger.info(f"Caught exception {type(e)}:{e}")
                 raise DeferEventError(event)
-            random_password = "".join(secrets.choice(alphabet) for i in range(20))
+            random_password = generate_password()
             session.execute(
                 "ALTER ROLE cassandra WITH PASSWORD=%s AND SUPERUSER=false",
                 (random_password,),
@@ -201,7 +174,7 @@ class CassandraOperatorCharm(CharmBase):
     def create_user(self, event, user, password):
         with self.cql_connection(event) as conn:
             conn.execute(
-                f"CREATE ROLE IF NOT EXISTS {user} WITH PASSWORD = '{password}' AND LOGIN = true"
+                f"CREATE ROLE IF NOT EXISTS '{user}' WITH PASSWORD = '{password}' AND LOGIN = true"
             )
 
     def create_db(self, event, db_name, user):
@@ -210,7 +183,7 @@ class CassandraOperatorCharm(CharmBase):
             conn.execute(
                 f"CREATE KEYSPACE IF NOT EXISTS {db_name} WITH REPLICATION = {{ 'class' : 'SimpleStrategy', 'replication_factor' : {self.goal_units()} }}"
             )
-            conn.execute(f"GRANT ALL PERMISSIONS ON KEYSPACE {db_name} to {user}")
+            conn.execute(f"GRANT ALL PERMISSIONS ON KEYSPACE {db_name} to '{user}'")
 
     def configure(self):
         if not self.unit.is_leader():
@@ -342,6 +315,11 @@ class CassandraOperatorCharm(CharmBase):
             "endpoint_snitch": "GossipingPropertyFileSnitch",
         }
         return yaml.dump(conf)
+
+    def provides(self, event):
+        # This needs to be hard coded for now because this method is called before the pod spec is set
+        provides = {"provides": {"cassandra": 4}}
+        return provides
 
 
 if __name__ == "__main__":
