@@ -3,6 +3,8 @@
 
 import unittest
 
+import cassandra.cluster
+
 from ops.testing import Harness
 from charm import CassandraOperatorCharm
 from unittest.mock import patch
@@ -12,7 +14,7 @@ class FakeConnection:
     def __init__(self, responses=None):
         self.responses = responses if responses is not None else {}
 
-    def __call__(self, event):
+    def __call__(self, event=None):
         return self
 
     def __enter__(self):
@@ -21,10 +23,14 @@ class FakeConnection:
     def __exit__(self, x_type, x_value, x_traceback):
         pass
 
-    def execute(self, query):
+    def execute(self, query, wildcards=None):
         return self.responses.get(query)
 
 
+@patch("charm.generate_password", new=lambda: "password")
+@patch.object(cassandra.cluster.Cluster, "connect", new=FakeConnection())
+@patch.object(CassandraOperatorCharm, "goal_units", new=lambda x: 1)
+@patch.object(CassandraOperatorCharm, "cql_address", new=lambda x: "1.1.1.1")
 class TestCharm(unittest.TestCase):
     def setUp(self):
         self.harness = Harness(CassandraOperatorCharm)
@@ -32,7 +38,6 @@ class TestCharm(unittest.TestCase):
         self.harness.begin()
         self.harness.set_leader(True)
 
-    @patch.object(CassandraOperatorCharm, "cql_connection", new=FakeConnection())
     def test_relation_is_set(self):
         rel_id = self.harness.add_relation("cql", "otherapp")
         self.assertIsInstance(rel_id, int)
@@ -43,7 +48,6 @@ class TestCharm(unittest.TestCase):
             "9042",
         )
 
-    @patch.object(CassandraOperatorCharm, "cql_connection", new=FakeConnection())
     def test_port_change(self):
         with patch.object(
             CassandraOperatorCharm,
@@ -59,3 +63,7 @@ class TestCharm(unittest.TestCase):
             self.harness.get_relation_data(rel_id, self.harness.model.app.name)["port"],
             "9043",
         )
+
+    def test_root_password_is_set(self):
+        self.assertEqual(self.harness.charm.stored.root_password, "")
+        self.assertEqual(self.harness.charm.root_password(None), "password")
