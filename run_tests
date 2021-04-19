@@ -21,7 +21,8 @@ else
 fi
 which pytest > /dev/null
 if [ $? -eq 0 ]; then
-    python3 -m pytest -v "$@"
+    coverage run --source=src,lib -m pytest -v "$@"
 else
-    python3 -m unittest -v "$@"
+    coverage run --source=src,lib -m unittest -v "$@"
 fi
+coverage report -m
