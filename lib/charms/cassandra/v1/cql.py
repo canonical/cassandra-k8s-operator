@@ -3,7 +3,7 @@ import json
 import logging
 import secrets
 import string
-from .relation import Consumer, Provider
+from .relation import ConsumerBase, ProviderBase
 
 LIBAPI = 1
 LIBPATCH = 0
@@ -28,7 +28,7 @@ def status_catcher(func):
     return new_func
 
 
-class CQLConsumer(Consumer):
+class CQLConsumer(ConsumerBase):
     def __init__(self, charm, name, consumes, multi=False):
         super().__init__(charm, name, consumes, multi)
         self.charm = charm
@@ -109,9 +109,9 @@ class CQLConsumer(Consumer):
         return rel.data[rel.app].get("port")
 
 
-class CQLProvider(Provider):
-    def __init__(self, charm, name, provides):
-        super().__init__(charm, name, provides)
+class CQLProvider(ProviderBase):
+    def __init__(self, charm, name, service, version=None):
+        super().__init__(charm, name, service, version)
         self.charm = charm
         events = self.charm.on[name]
         self.framework.observe(events.relation_changed, self.on_cql_changed)

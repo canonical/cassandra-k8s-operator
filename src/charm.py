@@ -58,7 +58,7 @@ class CassandraOperatorCharm(CharmBase):
             self.on["cassandra_peers"].relation_departed,
             self.on_cassandra_peers_departed,
         )
-        self.provider = CQLProvider(self, "cql", self.provides(None))
+        self.provider = CQLProvider(charm=self, name="cql", service="cassandra")
 
     def on_config_changed(self, event):
         self.configure()
@@ -315,11 +315,6 @@ class CassandraOperatorCharm(CharmBase):
             "endpoint_snitch": "GossipingPropertyFileSnitch",
         }
         return yaml.dump(conf)
-
-    def provides(self, event):
-        # This needs to be hard coded for now because this method is called before the pod spec is set
-        provides = {"provides": {"cassandra": 4}}
-        return provides
 
 
 if __name__ == "__main__":
