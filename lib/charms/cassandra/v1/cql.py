@@ -5,6 +5,7 @@ import secrets
 import string
 from .relation import ConsumerBase, ProviderBase
 
+LIBID = "abcdefg"
 LIBAPI = 1
 LIBPATCH = 0
 logger = logging.getLogger(__name__)
