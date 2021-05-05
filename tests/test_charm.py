@@ -35,8 +35,8 @@ class ConfigFile:
 
 @patch("charm.generate_password", new=lambda: "password")
 @patch.object(cassandra.cluster.Cluster, "connect", new=FakeConnection())
-@patch.object(CassandraOperatorCharm, "goal_units", new=lambda x: 1)
-@patch.object(CassandraOperatorCharm, "bind_address", new=lambda x: "1.1.1.1")
+@patch.object(CassandraOperatorCharm, "_goal_units", new=lambda x: 1)
+@patch.object(CassandraOperatorCharm, "_bind_address", new=lambda x: "1.1.1.1")
 @patch.object(ops.model.Container, "pull", new=lambda x, y: ConfigFile())
 @patch.object(ops.model.Container, "push", new=lambda x, y, z: None)
 class TestCharm(unittest.TestCase):
@@ -58,21 +58,16 @@ class TestCharm(unittest.TestCase):
         )
 
     def test_port_change(self):
-        with patch.object(
-            CassandraOperatorCharm,
-            "goal_units",
-            return_value=self.harness.charm.num_units(),
-        ):
-            rel_id = self.harness.add_relation("cql", "otherapp")
-            self.assertIsInstance(rel_id, int)
-            self.harness.add_relation_unit(rel_id, "otherapp/0")
-            self.harness.update_relation_data(rel_id, "otherapp", {})
-            self.harness.update_config({"port": "9043"})
+        rel_id = self.harness.add_relation("cql", "otherapp")
+        self.assertIsInstance(rel_id, int)
+        self.harness.add_relation_unit(rel_id, "otherapp/0")
+        self.harness.update_relation_data(rel_id, "otherapp", {})
+        self.harness.update_config({"port": "9043"})
         self.assertEqual(
             self.harness.get_relation_data(rel_id, self.harness.model.app.name)["port"],
             "9043",
         )
 
     def test_root_password_is_set(self):
-        self.assertEqual(self.harness.charm.stored.root_password, "")
-        self.assertEqual(self.harness.charm.root_password(None), "password")
+        self.assertEqual(self.harness.charm._stored.root_password, "")
+        self.assertEqual(self.harness.charm._root_password(None), "password")
