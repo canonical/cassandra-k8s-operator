@@ -40,11 +40,14 @@ class ConfigFile:
 @patch.object(ops.model.Container, "pull", new=lambda x, y: ConfigFile())
 @patch.object(ops.model.Container, "push", new=lambda x, y, z: None)
 class TestCharm(unittest.TestCase):
+    @patch.object(CassandraOperatorCharm, "_goal_units", new=lambda x: 1)
+    @patch.object(CassandraOperatorCharm, "_bind_address", new=lambda x: "1.1.1.1")
+    @patch.object(ops.model.Container, "pull", new=lambda x, y: ConfigFile())
+    @patch.object(ops.model.Container, "push", new=lambda x, y, z: None)
     def setUp(self):
         self.harness = Harness(CassandraOperatorCharm)
         self.addCleanup(self.harness.cleanup)
-        self.harness.begin()
-        self.harness.add_relation("cassandra-peers", "cassandra")
+        self.harness.begin_with_initial_hooks()
         self.harness.set_leader(True)
 
     def test_relation_is_set(self):
