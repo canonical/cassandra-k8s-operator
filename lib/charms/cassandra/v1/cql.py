@@ -11,9 +11,10 @@ logger = logging.getLogger(__name__)
 
 
 class DeferEventError(Exception):
-    def __init__(self, event):
+    def __init__(self, event, reason):
         super().__init__()
         self.event = event
+        self.reason = reason
 
 
 def status_catcher(func):
@@ -22,7 +23,7 @@ def status_catcher(func):
         try:
             func(self, *args, **kwargs)
         except DeferEventError as e:
-            logger.info(f"Defering event {str(e.event)}")
+            logger.info(f"Defering event: {str(e.event)} because: {e.reason}")
             e.event.defer()
 
     return new_func
