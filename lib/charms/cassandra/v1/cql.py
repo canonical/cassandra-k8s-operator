@@ -41,8 +41,6 @@ class CQLConsumer(ConsumerBase):
         Returns a dict of credentials
         {"username": <username>, "password": <password>}
         """
-        if rel_id is None:
-            rel_id = super()._stored.relation_id
         rel = self.framework.model.get_relation(self.relation_name, rel_id)
 
         relation_data = rel.data[rel.app]
@@ -56,8 +54,6 @@ class CQLConsumer(ConsumerBase):
         Returns:
             list: list of database names
         """
-        if rel_id is None:
-            rel_id = super()._stored.relation_id
         rel = self.framework.model.get_relation(self.relation_name, rel_id)
 
         relation_data = rel.data[rel.app]
@@ -73,8 +69,6 @@ class CQLConsumer(ConsumerBase):
         if not self.charm.unit.is_leader():
             return
 
-        if rel_id is None:
-            rel_id = super()._stored.relation_id
         rel = self.framework.model.get_relation(self.relation_name, rel_id)
 
         rel_data = rel.data[self.charm.app]
@@ -86,17 +80,12 @@ class CQLConsumer(ConsumerBase):
         if not self.charm.unit.is_leader():
             return
 
-        if rel_id is None:
-            rel_id = super()._stored.relation_id
-
         rel = self.framework.model.get_relation(self.relation_name, rel_id)
 
         rel.data[self.charm.app]['requested_databases'] = str(n)
 
     def port(self, rel_id=None):
         """Return the port which the cassandra instance is listening on"""
-        if rel_id is None:
-            rel_id = super()._stored.relation_id
         rel = self.framework.model.get_relation(self.relation_name, rel_id)
 
         return rel.data[rel.app].get("port")
