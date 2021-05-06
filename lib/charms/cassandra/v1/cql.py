@@ -45,7 +45,7 @@ class CQLConsumer(ConsumerBase):
 
         relation_data = rel.data[rel.app]
         creds_json = relation_data.get('credentials')
-        return = json.loads(creds_json) if creds_json is not None else ()
+        return json.loads(creds_json) if creds_json is not None else ()
 
     def databases(self, rel_id=None):
         """List of currently available databases
@@ -57,7 +57,7 @@ class CQLConsumer(ConsumerBase):
 
         relation_data = rel.data[rel.app]
         dbs = relation_data.get('databases')
-        return = json.loads(dbs) if dbs else []
+        return json.loads(dbs) if dbs else []
 
     def new_database(self, rel_id=None):
         """Request creation of an additional database
