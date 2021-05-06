@@ -75,14 +75,14 @@ class CQLConsumer(ConsumerBase):
         dbs = rel_data.get('requested_databases', 0)
         rel.data[self.charm.app]['requested_databases'] = str(dbs + 1)
 
-    def request_databases(self, n, rel_id=None):
+    def request_databases(self, num_databases, rel_id=None):
         """Request n databases"""
         if not self.charm.unit.is_leader():
             return
 
         rel = self.framework.model.get_relation(self.relation_name, rel_id)
 
-        rel.data[self.charm.app]['requested_databases'] = str(n)
+        rel.data[self.charm.app]['requested_databases'] = str(num_databases)
 
     def port(self, rel_id=None):
         """Return the port which the cassandra instance is listening on"""
