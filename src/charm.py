@@ -120,7 +120,7 @@ class CassandraOperatorCharm(CharmBase):
             try:
                 session = cluster.connect()
             except NoHostAvailable as e:
-                logger.info(f"Caught exception {type(e)}:{e}")
+                logger.info("Caught exception %s:%s", type(e), e)
                 raise DeferEventError(
                     event, "Can't connect to database in _root_password()"
                 )
@@ -157,7 +157,7 @@ class CassandraOperatorCharm(CharmBase):
             try:
                 session = cluster.connect()
             except NoHostAvailable as e:
-                logger.info(f"Caught exception {type(e)}:{e}")
+                logger.info("Caught exception %s:%s", type(e), e)
                 raise DeferEventError(
                     event, "Can't connect to database in _root_password()"
                 )
@@ -188,7 +188,7 @@ class CassandraOperatorCharm(CharmBase):
             session = cluster.connect()
             yield session
         except NoHostAvailable as e:
-            logger.info(f"Caught exception {type(e)}:{e}")
+            logger.info("Caught exception %s:%s", type(e), e)
             raise DeferEventError(event, "Can't connect to database")
         finally:
             cluster.shutdown

@@ -24,7 +24,7 @@ def status_catcher(func):
         try:
             func(self, *args, **kwargs)
         except DeferEventError as e:
-            logger.info(f"Defering event: {str(e.event)} because: {e.reason}")
+            logger.info("Defering event: %s because: %s", str(e.event), e.reason)
             e.event.defer()
 
     return new_func
@@ -101,7 +101,7 @@ class CQLProvider(ProviderBase):
     def update_port(self, relation_name, port):
         if self.charm.unit.is_leader():
             for relation in self.charm.model.relations[relation_name]:
-                logger.info(f"Setting address data for relation {relation}")
+                logger.info("Setting address data for relation %s", relation)
                 if str(port) != relation.data[self.charm.app].get(
                     "port", None
                 ):
