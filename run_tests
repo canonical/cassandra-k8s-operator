@@ -7,13 +7,12 @@ if [ -z "$VIRTUAL_ENV" -a -d venv/ ]; then
 fi
 
 if [ -z "$PYTHONPATH" ]; then
-    export PYTHONPATH=src
+    export PYTHONPATH="lib:src"
 else
-    export PYTHONPATH="src:$PYTHONPATH"
+    export PYTHONPATH="lib:src:$PYTHONPATH"
 fi
 
 flake8 || exit $?
-
 if [ "$1" == '--fix' ]; then
     black src tests
     shift
@@ -22,7 +21,8 @@ else
 fi
 which pytest > /dev/null
 if [ $? -eq 0 ]; then
-    python3 -m pytest -v "$@"
+    coverage run --source=src,lib -m pytest -v "$@"
 else
-    python3 -m unittest -v "$@"
+    coverage run --source=src,lib -m unittest -v "$@"
 fi
+coverage report -m

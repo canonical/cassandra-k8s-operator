@@ -2,157 +2,321 @@
 # Copyright 2020 dylan
 # See LICENSE file for licensing details.
 
+import contextlib
+import json
 import logging
+import subprocess
 import yaml
 
-from ops.charm import CharmBase
-from ops.main import main
-from ops.model import ActiveStatus, MaintenanceStatus
+from charms.cassandra.v1.cql import (
+    DeferEventError,
+    status_catcher,
+    generate_password,
+    CQLProvider,
+)
 
-log = logging.getLogger(__name__)
+from cassandra import ConsistencyLevel, InvalidRequest
+from cassandra.auth import PlainTextAuthProvider
+from cassandra.cluster import (
+    Cluster,
+    ExecutionProfile,
+    EXEC_PROFILE_DEFAULT,
+    NoHostAvailable,
+)
+from cassandra.policies import RoundRobinPolicy
+from cassandra.query import SimpleStatement
+
+from ops.charm import CharmBase
+from ops.framework import StoredState
+from ops.main import main
+from ops.model import ActiveStatus
+
+logger = logging.getLogger(__name__)
 
 
 CLUSTER_PORT = 7001
 UNIT_ADDRESS = "{}-{}.{}-endpoints.{}.svc.cluster.local"
+CQL_PROTOCOL_VERSION = 4
+ROOT_USER = "charm_root"
+CONFIG_PATH = "/etc/cassandra/cassandra.yaml"
+
+
+def restart(container):
+    logger.info("Restarting cassandra")
+    if container.get_service("cassandra").is_running():
+        container.stop("cassandra")
+    container.start("cassandra")
+
+
+def make_started(container):
+    if not container.get_service("cassandra").is_running():
+        logger.info("Starting Cassandra")
+        container.start("cassandra")
 
 
 class CassandraOperatorCharm(CharmBase):
+    _stored = StoredState()
+
     def __init__(self, *args):
         super().__init__(*args)
+        self._stored.set_default(root_password="")
+        # If the _root_password() method partially completes we need to store the password while keeping self._stored.root_password empty
+        self._stored.set_default(root_password_secondary="")
+        self.framework.observe(self.on.cassandra_pebble_ready, self.on_pebble_ready)
         self.framework.observe(self.on.config_changed, self.on_config_changed)
-        self.framework.observe(self.on["cql"].relation_changed, self.on_cql_changed)
+        self.framework.observe(self.on["cql"].relation_joined, self.on_cql_joined)
         self.framework.observe(
-            self.on["cassandra"].relation_changed, self.on_cassandra_changed
+            self.on["cassandra_peers"].relation_changed, self.on_cassandra_peers_changed
         )
         self.framework.observe(
-            self.on["cassandra"].relation_departed, self.on_cassandra_departed
+            self.on["cassandra_peers"].relation_departed,
+            self.on_cassandra_peers_departed,
         )
+        self.provider = CQLProvider(charm=self, name="cql", service="cassandra")
 
-    def on_config_changed(self, _):
-        self.configure()
-        for relation in self.model.relations["cql"]:
-            self.update_cql(relation)
+    @status_catcher
+    def on_pebble_ready(self, event):
+        self._configure(event)
+        container = event.workload
+        make_started(container)
 
-    def on_cql_changed(self, event):
-        self.update_cql(event.relation)
+    @status_catcher
+    def on_config_changed(self, event):
+        self._configure(event)
+        self.provider.update_port("cql", self.model.config["port"])
 
-    def on_cassandra_changed(self, event):
-        self.configure()
+    def on_cql_joined(self, event):
+        self.provider.update_port("cql", self.model.config["port"])
 
-    def on_cassandra_departed(self, event):
-        self.configure()
+    @status_catcher
+    def on_cassandra_peers_changed(self, event):
+        self._configure(event)
 
-    def update_cql(self, relation):
-        if self.unit.is_leader():
-            log.info("Setting relation data")
-            if str(self.model.config["port"]) != relation.data[self.app].get(
-                "port", None
+    @status_catcher
+    def on_cassandra_peers_departed(self, event):
+        self._configure(event)
+
+    def _root_password(self, event):
+        if self._stored.root_password:
+            return self._stored.root_password
+
+        # Without this the query to create a user for some reason does nothing
+        if self._num_units() != self._goal_units():
+            raise DeferEventError(event, "Units not up in _root_password()")
+
+        # First create a new superuser
+        auth_provider = PlainTextAuthProvider(
+            username="cassandra", password="cassandra"
+        )
+        profile = ExecutionProfile(load_balancing_policy=RoundRobinPolicy())
+        cluster = Cluster(
+            [self._bind_address()],
+            port=self.model.config["port"],
+            auth_provider=auth_provider,
+            execution_profiles={EXEC_PROFILE_DEFAULT: profile},
+            protocol_version=CQL_PROTOCOL_VERSION,
+        )
+        try:
+            try:
+                session = cluster.connect()
+            except NoHostAvailable as e:
+                logger.info("Caught exception %s:%s", type(e), e)
+                raise DeferEventError(
+                    event, "Can't connect to database in _root_password()"
+                )
+            # Set system_auth replication here once we have pebble
+            # See https://docs.datastax.com/en/cassandra-oss/3.0/cassandra/configuration/secureConfigNativeAuth.html
+            if not self._stored.root_password_secondary:
+                self._stored.root_password_secondary = generate_password()
+            query = SimpleStatement(
+                f"CREATE ROLE {ROOT_USER} WITH PASSWORD = '{self._stored.root_password_secondary}' AND SUPERUSER = true AND LOGIN = true",
+                consistency_level=ConsistencyLevel.QUORUM,
+            )
+            session.execute(query)
+        except InvalidRequest as e:
+            if (
+                not str(e)
+                == 'Error from server: code=2200 [Invalid query] message="charm_root already exists"'
             ):
-                relation.data[self.app]["port"] = str(self.model.config["port"])
+                raise
+        finally:
+            cluster.shutdown()
 
-    def configure(self):
-        if not self.unit.is_leader():
-            log.debug("Unit is not leader. Cannot set pod spec.")
-            self.unit.status = ActiveStatus()
-            return
+        # Now disable the original superuser
+        auth_provider = PlainTextAuthProvider(
+            username=ROOT_USER, password=self._stored.root_password_secondary
+        )
+        cluster = Cluster(
+            [self._bind_address()],
+            port=self.model.config["port"],
+            auth_provider=auth_provider,
+            execution_profiles={EXEC_PROFILE_DEFAULT: profile},
+            protocol_version=CQL_PROTOCOL_VERSION,
+        )
+        try:
+            try:
+                session = cluster.connect()
+            except NoHostAvailable as e:
+                logger.info("Caught exception %s:%s", type(e), e)
+                raise DeferEventError(
+                    event, "Can't connect to database in _root_password()"
+                )
+            random_password = generate_password()
+            session.execute(
+                "ALTER ROLE cassandra WITH PASSWORD=%s AND SUPERUSER=false",
+                (random_password,),
+            )
+        finally:
+            cluster.shutdown()
+        self._stored.root_password = self._stored.root_password_secondary
+        return self._stored.root_password
 
-        self.unit.status = MaintenanceStatus("Building pod spec.")
-        log.debug("Building pod spec.")
+    @contextlib.contextmanager
+    def cql_connection(self, event):
+        auth_provider = PlainTextAuthProvider(
+            username=ROOT_USER, password=self._root_password(event)
+        )
+        profile = ExecutionProfile(load_balancing_policy=RoundRobinPolicy())
+        cluster = Cluster(
+            [self._bind_address()],
+            port=self.model.config["port"],
+            auth_provider=auth_provider,
+            execution_profiles={EXEC_PROFILE_DEFAULT: profile},
+            protocol_version=CQL_PROTOCOL_VERSION,
+        )
+        try:
+            session = cluster.connect()
+            yield session
+        except NoHostAvailable as e:
+            logger.info("Caught exception %s:%s", type(e), e)
+            raise DeferEventError(event, "Can't connect to database")
+        finally:
+            cluster.shutdown
 
-        pod_spec = self.build_pod_spec()
-        log.debug("Setting pod spec.")
-        self.model.pod.set_spec(pod_spec)
+    def create_user(self, event, user, password):
+        with self.cql_connection(event) as conn:
+            conn.execute(
+                f"CREATE ROLE IF NOT EXISTS '{user}' WITH PASSWORD = '{password}' AND LOGIN = true"
+            )
+
+    def create_db(self, event, db_name, user):
+        with self.cql_connection(event) as conn:
+            # Review replication strategy
+            conn.execute(
+                f"CREATE KEYSPACE IF NOT EXISTS {db_name} WITH REPLICATION = {{ 'class' : 'SimpleStrategy', 'replication_factor' : {self._goal_units()} }}"
+            )
+            conn.execute(f"GRANT ALL PERMISSIONS ON KEYSPACE {db_name} to '{user}'")
+
+    def _configure(self, event):
+
+        if self._num_units() != self._goal_units():
+            raise DeferEventError(event, "Units not up in _configure()")
+
+        bind_address = self._bind_address()
+        if bind_address is None:
+            raise DeferEventError(event, "No ip address in _configure()")
+        peer_rel = self.model.get_relation("cassandra-peers")
+        peer_rel.data[self.unit]["peer_address"] = bind_address
+
+        needs_restart = False
+
+        conf = self._config_file(event)
+        container = self.unit.get_container("cassandra")
+        if yaml.safe_load(container.pull(CONFIG_PATH).read()) != yaml.safe_load(conf):
+            container.push(CONFIG_PATH, conf)
+            needs_restart = True
+
+        layer = self._build_layer(event)
+        plan = container.get_plan()
+        if (
+            "cassandra" not in plan.services
+            or plan.services["cassandra"].to_dict()["environment"]
+            != layer["services"]["cassandra"]["environment"]
+        ):
+            container.add_layer("cassandra", layer, combine=True)
+            needs_restart = True
+
+        if needs_restart:
+            restart(container)
+
+        if self.unit.is_leader():
+            self._root_password(event)
 
         self.unit.status = ActiveStatus()
-        log.debug("Pod spec set successfully.")
+        logger.debug("Pod spec set successfully.")
 
-    def build_pod_spec(self):
-        config = self.model.config
-
-        image_details = {"imagePath": config["image_path"]}
-
-        spec = {
-            "version": 3,
-            "containers": [
-                {
-                    "name": self.app.name,
-                    "imageDetails": image_details,
-                    "command": [
-                        "sh",
-                        "-c",
-                        "cp /mnt/cassandra.yaml /etc/cassandra/cassandra.yaml &&"
-                        "docker-entrypoint.sh",
-                    ],
-                    "ports": [
-                        {
-                            "containerPort": config["port"],
-                            "name": "cql",
-                            "protocol": "TCP",
-                        },
-                        {
-                            "containerPort": CLUSTER_PORT,
-                            "name": "cluster",
-                            "protocol": "TCP",
-                        },
-                    ],
-                    "volumeConfig": [
-                        {
-                            "name": "config",
-                            "mountPath": "/mnt",
-                            # "mountPath": "/etc/charm/cassandra",
-                            "files": [
-                                {
-                                    "path": "cassandra.yaml",
-                                    "content": self.config_file(),
-                                }
-                            ],
-                        }
-                    ]
-                    # 'kubernetes': # probes here
+    def _build_layer(self, event):
+        layer = {
+            "summary": "Cassandra Layer",
+            "description": "pebble config layer for Cassandra",
+            "services": {
+                "cassandra": {
+                    "override": "replace",
+                    "summary": "cassandra service",
+                    "command": "docker-entrypoint.sh cassandra -f",
+                    "startup": "enabled",
+                    "environment": {
+                        "CASSANDRA_SEEDS": self._seeds(event),
+                    },
                 }
-            ],
+            },
         }
-        return spec
+        return layer
 
-    def seeds(self):
-        seeds = UNIT_ADDRESS.format(self.meta.name, 0, self.meta.name, self.model.name)
-        num_units = self.num_units()
-        if num_units >= 2:
-            seeds = (
-                seeds
-                + ","
-                + UNIT_ADDRESS.format(
-                    self.meta.name, 1, self.meta.name, self.model.name
-                )
-            )
-        if num_units >= 3:
-            seeds = (
-                seeds
-                + ","
-                + UNIT_ADDRESS.format(
-                    self.meta.name, 2, self.meta.name, self.model.name
-                )
-            )
-        return seeds
+    def _seeds(self, event):
+        bind_address = self._bind_address()
+        if bind_address is None:
+            raise DeferEventError(event, "No ip address in _seeds()")
+        peers = [bind_address]
+        rel = self.model.get_relation("cassandra-peers")
+        for unit in rel.units:
+            addr = rel.data[unit].get("peer_address")
+            if addr is None:
+                raise DeferEventError(event, "No peer ip address in _seeds()")
+            peers.append(addr)
+        peers.sort()
+        return ",".join(peers[:3])
 
-    def num_units(self):
-        relation = self.model.get_relation("cassandra")
+    def _num_units(self):
+        relation = self.model.get_relation("cassandra-peers")
         # The relation does not list ourself as a unit so we must add 1
         return len(relation.units) + 1 if relation is not None else 1
 
-    def config_file(self):
+    def _goal_units(self):
+        # We need to shell out here as goal state is not yet implemented in operator
+        # See https://github.com/canonical/operator/pull/453
+        goal_state = json.loads(
+            subprocess.check_output(["goal-state", "--format", "json"])
+        )
+        return len(goal_state["units"])
+
+    def _bind_address(self, timeout=60):
+        try:
+            return str(self.model.get_binding("cassandra-peers").network.bind_address)
+        except TypeError as e:
+            if str(e) == "'NoneType' object is not iterable":
+                return None
+            else:
+                raise
+
+    def _config_file(self, event):
+        bind_address = self._bind_address()
+        if bind_address is None:
+            raise DeferEventError(event, "No ip address in _config_file()")
         conf = {
-            "cluster_name": "charm-cluster",
+            "cluster_name": f"juju-cluster-{self.app.name}",
             "num_tokens": 256,
-            "listen_address": "0.0.0.0",
+            "listen_address": bind_address,
             "start_native_transport": "true",
             "native_transport_port": self.model.config["port"],
             "seed_provider": [
                 {
                     "class_name": "org.apache.cassandra.locator.SimpleSeedProvider",
-                    "parameters": [{"seeds": self.seeds()}],
+                    "parameters": [{"seeds": self._seeds(event)}],
                 }
             ],
+            "authenticator": "PasswordAuthenticator",
+            "authorizer": "CassandraAuthorizer",
             # Required configs
             "commitlog_sync": "periodic",
             "commitlog_sync_period_in_ms": 10000,
@@ -163,4 +327,5 @@ class CassandraOperatorCharm(CharmBase):
 
 
 if __name__ == "__main__":
-    main(CassandraOperatorCharm)
+    # see https://github.com/canonical/operator/issues/506
+    main(CassandraOperatorCharm, use_juju_for_storage=True)
