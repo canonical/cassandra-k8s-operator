@@ -74,3 +74,13 @@ class TestCharm(unittest.TestCase):
     def test_root_password_is_set(self):
         self.assertEqual(self.harness.charm._stored.root_password, "")
         self.assertEqual(self.harness.charm._root_password(None), "password")
+
+    @patch.object(CassandraOperatorCharm, "_goal_units", new=lambda x: 2)
+    def test_peers_changed(self):
+        rel_id = self.harness.charm.model.get_relation("cassandra-peers").id
+        self.harness.add_relation_unit(rel_id, "cassandra/1")
+        self.harness.update_relation_data(
+            rel_id, "cassandra/1", {"peer_address": "1.1.1.1"}
+        )
+        seeds = self.harness.charm._seeds(None).split(",")
+        assert len(seeds) == 2
