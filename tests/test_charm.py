@@ -1,6 +1,7 @@
 # Copyright 2020 dylan
 # See LICENSE file for licensing details.
 
+import json
 import unittest
 import yaml
 
@@ -98,6 +99,16 @@ class TestCharm(unittest.TestCase):
             "9042",
         )
 
+    def test_request_db(self):
+        rel_id = self.harness.add_relation("cql", "otherapp")
+        self.assertIsInstance(rel_id, int)
+        self.harness.add_relation_unit(rel_id, "otherapp/0")
+        self.harness.update_relation_data(
+            rel_id, "otherapp", {"requested_databases": "1"}
+        )
+        data = self.harness.get_relation_data(rel_id, "cassandra")
+        assert len(json.loads(data["databases"])) == 1
+
     def test_port_change(self):
         rel_id = self.harness.add_relation("cql", "otherapp")
         self.assertIsInstance(rel_id, int)
@@ -114,7 +125,7 @@ class TestCharm(unittest.TestCase):
         self.assertEqual(self.harness.charm._root_password(None), "password")
 
     @patch.object(CassandraOperatorCharm, "_goal_units", new=lambda x: 2)
-    def test_peers_changed(self):
+    def test_scale_up(self):
         rel_id = self.harness.charm.model.get_relation("cassandra-peers").id
         self.harness.add_relation_unit(rel_id, "cassandra/1")
         self.harness.update_relation_data(
