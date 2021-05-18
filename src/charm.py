@@ -227,12 +227,8 @@ class CassandraOperatorCharm(CharmBase):
             needs_restart = True
 
         layer = self._build_layer(event)
-        plan = container.get_plan()
-        if (
-            "cassandra" not in plan.services
-            or plan.services["cassandra"].to_dict()["environment"]
-            != layer["services"]["cassandra"]["environment"]
-        ):
+        services = container.get_plan().to_dict().get("services", {})
+        if services != layer["services"]:
             container.add_layer("cassandra", layer, combine=True)
             needs_restart = True
 
