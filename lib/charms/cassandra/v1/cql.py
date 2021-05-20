@@ -17,7 +17,7 @@ import json
 import logging
 import secrets
 import string
-from .relation import ConsumerBase, ProviderBase
+from ops.relation import ConsumerBase, ProviderBase
 
 LIBID = "abcdefg"
 LIBAPI = 1
