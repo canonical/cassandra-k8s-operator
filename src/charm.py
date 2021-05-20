@@ -26,6 +26,7 @@ from charms.cassandra.v1.cql import (
     generate_password,
     CQLProvider,
 )
+from charms.prometheus.v1.prometheus import PrometheusConsumer
 
 from cassandra import ConsistencyLevel, InvalidRequest
 from cassandra.auth import PlainTextAuthProvider
@@ -51,6 +52,7 @@ UNIT_ADDRESS = "{}-{}.{}-endpoints.{}.svc.cluster.local"
 CQL_PROTOCOL_VERSION = 4
 ROOT_USER = "charm_root"
 CONFIG_PATH = "/etc/cassandra/cassandra.yaml"
+ENV_PATH = "/etc/cassandra/cassandra-env.sh"
 
 
 def restart(container):
@@ -78,6 +80,12 @@ class CassandraOperatorCharm(CharmBase):
         self.framework.observe(self.on.config_changed, self.on_config_changed)
         self.framework.observe(self.on["cql"].relation_joined, self.on_cql_joined)
         self.framework.observe(
+            self.on["monitoring"].relation_joined, self.on_monitoring_joined
+        )
+        self.framework.observe(
+            self.on["monitoring"].relation_broken, self.on_monitoring_broken
+        )
+        self.framework.observe(
             self.on["cassandra_peers"].relation_changed, self.on_cassandra_peers_changed
         )
         self.framework.observe(
@@ -85,6 +93,9 @@ class CassandraOperatorCharm(CharmBase):
             self.on_cassandra_peers_departed,
         )
         self.provider = CQLProvider(charm=self, name="cql", service="cassandra")
+        self.prometheus_consumer = PrometheusConsumer(
+            charm=self, name="monitoring", consumes={"Prometheus": ">=2"}
+        )
 
     @status_catcher
     def on_pebble_ready(self, event):
@@ -99,6 +110,37 @@ class CassandraOperatorCharm(CharmBase):
 
     def on_cql_joined(self, event):
         self.provider.update_port("cql", self.model.config["port"])
+
+    @status_catcher
+    def on_monitoring_joined(self, event):
+        # Turn on metrics exporting
+        if not self.unit.is_leader():
+            return
+        if len(self.model.relations["monitoring"]) > 0:
+            container = self.unit.get_container("cassandra")
+            cassandra_env = container.pull(ENV_PATH).read()
+            if "jmx_prometheus_javaagent" not in cassandra_env:
+                container.push(
+                    ENV_PATH,
+                    cassandra_env
+                    + '\nJVM_OPTS="$JVM_OPTS -javaagent:/opt/jmx-exporter/jmx_prometheus_javaagent-0.15.0.jar=7070:/opt/jmx-exporter/cassandra.yaml"',
+                )
+                restart(container)
+                self.prometheus_consumer.add_endpoint(
+                    address=self._bind_address(), port=7070
+                )
+
+    @status_catcher
+    def on_monitoring_broken(self, event):
+        if not self.unit.is_leader():
+            return
+        # If there are no monitoring relations, disable metrics
+        if len(self.model.relations["monitoring"]) == 0:
+            container = self.unit.get_container("cassandra")
+            cassandra_env = container.pull(ENV_PATH).readlines()
+            if "jmx_prometheus_javaagent" in cassandra_env[-1]:
+                container.push(ENV_PATH, "\n".join(cassandra_env[:-1]))
+            restart(container)
 
     @status_catcher
     def on_cassandra_peers_changed(self, event):
@@ -220,7 +262,6 @@ class CassandraOperatorCharm(CharmBase):
             conn.execute(f"GRANT ALL PERMISSIONS ON KEYSPACE {db_name} to '{user}'")
 
     def _configure(self, event):
-
         if self._num_units() != self._goal_units():
             raise DeferEventError(event, "Units not up in _configure()")
 
