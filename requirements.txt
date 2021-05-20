@@ -1,3 +1,3 @@
-ops>=1.2
+git+https://github.com/balbirthomas/operator/@provider-consumer-lib#egg=ops
 cassandra-driver
 semantic-version
