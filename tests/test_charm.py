@@ -154,3 +154,17 @@ class TestCharm(unittest.TestCase):
         )
         content = yaml.safe_load(content_str)
         assert content == sample_content
+
+    def test_prometheus_data_set(self):
+        rel_id = self.harness.add_relation("monitoring", "otherapp")
+        self.assertIsInstance(rel_id, int)
+        self.harness.add_relation_unit(rel_id, "otherapp/0")
+        self.harness.update_relation_data(rel_id, "otherapp", {})
+        self.assertEqual(
+            json.loads(
+                self.harness.get_relation_data(rel_id, self.harness.model.app.name)[
+                    "targets"
+                ]
+            ),
+            ["1.1.1.1:7070"],
+        )

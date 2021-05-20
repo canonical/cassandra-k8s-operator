@@ -29,6 +29,9 @@ resources:
 provides:
   cql:
     interface: cql
+requires:
+  monitoring:
+    interface: prometheus
 peers:
   cassandra-peers:
     interface: cassandra-peers
