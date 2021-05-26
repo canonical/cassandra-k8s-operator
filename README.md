@@ -8,29 +8,6 @@ The [Cassandra] operator provides a NoSQL distributed database solution. It is p
 [Juju]: https://jaas.ai/
 [ecosystem]: https://charmhub.io/
 
-## Setup
-
-A typical setup using [snaps](https://snapcraft.io/), for deployments
-to a [microk8s](https://microk8s.io/) cluster can be done using the
-following commands
-
-    sudo snap install microk8s --classic
-    sudo usermod -a -G microk8s $USER
-    sudo microk8s.enable dns storage registry dashboard
-    sudo snap install juju --classic
-    sudo microk8s config | juju add-k8s mk8s --client
-    juju bootstrap mk8s
-
-## Build
-
-Install the charmcraft tool
-
-    sudo snap install charmcraft
-
-Build the charm in this git repository using
-
-    charmcraft build
-
 ## Usage
 
 Create a Juju model (say "lma" for your observability operators)
