@@ -14,7 +14,7 @@ Create a Juju model (say "lma" for your observability operators)
 
     juju add-model lma
 
-### Deploy Alertmanager with PagerDuty configuration
+### Deploy Cassandra
 
     juju deploy ./cassandra.charm --resource cassandra-image='dstathis/cassandra-operator-image:latest'
 
@@ -22,7 +22,7 @@ Create a Juju model (say "lma" for your observability operators)
 
 You may add additional Cassandra units for high availability
 
-    juju add-unit cassadnra
+    juju add-unit cassandra
 
 ## Developing
 
