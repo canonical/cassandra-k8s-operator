@@ -136,9 +136,12 @@ class CassandraOperatorCharm(CharmBase):
         if len(self.model.relations["monitoring"]) == 0:
             container = self.unit.get_container("cassandra")
             cassandra_env = container.pull(ENV_PATH).readlines()
-            if "jmx_prometheus_javaagent" in cassandra_env[-1]:
-                container.push(ENV_PATH, "\n".join(cassandra_env[:-1]))
-            restart(container)
+            for line in cassandra_env:
+                if "jmx_prometheus_javaagent" in line:
+                    cassandra_env.remove(line)
+                    container.push(ENV_PATH, "\n".join(cassandra_env))
+                    restart(container)
+                    break
 
     @status_catcher
     def on_cassandra_peers_changed(self, event):
