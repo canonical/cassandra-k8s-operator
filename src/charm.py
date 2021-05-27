@@ -47,8 +47,6 @@ from ops.model import ActiveStatus
 logger = logging.getLogger(__name__)
 
 
-CLUSTER_PORT = 7001
-UNIT_ADDRESS = "{}-{}.{}-endpoints.{}.svc.cluster.local"
 CQL_PROTOCOL_VERSION = 4
 ROOT_USER = "charm_root"
 CONFIG_PATH = "/etc/cassandra/cassandra.yaml"
