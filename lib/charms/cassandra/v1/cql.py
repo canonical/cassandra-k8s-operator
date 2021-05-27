@@ -118,6 +118,7 @@ class CQLProvider(ProviderBase):
                 ):
                     relation.data[self.charm.app]["port"] = str(port)
 
+    @status_catcher
     def on_cql_changed(self, event):
         if not self.charm.unit.is_leader():
             return
