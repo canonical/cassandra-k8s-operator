@@ -43,7 +43,7 @@ class FakeConnection:
 
 SAMPLE_CONFIG = """authenticator: PasswordAuthenticator
 authorizer: CassandraAuthorizer
-cluster_name: juju-cluster-cassandra
+cluster_name: juju-cluster-cassandra-k8s
 commitlog_sync: periodic
 commitlog_sync_period_in_ms: 10000
 endpoint_snitch: GossipingPropertyFileSnitch
@@ -117,7 +117,7 @@ class TestCharm(unittest.TestCase):
         self.harness.update_relation_data(
             rel_id, "otherapp", {"requested_databases": "1"}
         )
-        data = self.harness.get_relation_data(rel_id, "cassandra")
+        data = self.harness.get_relation_data(rel_id, "cassandra-k8s")
         assert len(json.loads(data["databases"])) == 1
 
     def test_port_change(self):
