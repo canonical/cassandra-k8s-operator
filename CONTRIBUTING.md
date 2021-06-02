@@ -7,7 +7,7 @@ Building and Deploying
 ======================
 
     charmcraft build
-    juju deploy ./cassandra-k8s.charm --resource cassandra-image='dstathis/cassandra-oper    ator-image:latest'
+    juju deploy ./cassandra-k8s.charm --resource cassandra-image='dstathis/cassandra-operator-image:latest'
 
 Tests
 =====
