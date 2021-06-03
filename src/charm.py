@@ -20,7 +20,7 @@ import logging
 import subprocess
 import yaml
 
-from charms.cassandra.v1.cql import (
+from charms.cassandra_k8s.v1.cql import (
     DeferEventError,
     status_catcher,
     generate_password,
