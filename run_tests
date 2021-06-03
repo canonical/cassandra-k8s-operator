@@ -18,6 +18,10 @@ if [ -z "$VIRTUAL_ENV" -a -d venv/ ]; then
     . venv/bin/activate
 fi
 
+if [ ! -z "${VIRTUAL_ENV}" ]; then
+    pip install --upgrade -r requirements-dev.txt > /dev/null
+fi
+
 if [ -z "$PYTHONPATH" ]; then
     export PYTHONPATH="lib:src"
 else

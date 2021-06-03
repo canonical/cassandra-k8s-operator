@@ -20,7 +20,7 @@ import logging
 import subprocess
 import yaml
 
-from charms.cassandra.v1.cql import (
+from charms.cassandra_k8s.v1.cql import (
     DeferEventError,
     status_catcher,
     generate_password,
@@ -42,7 +42,7 @@ from cassandra.query import SimpleStatement
 from ops.charm import CharmBase
 from ops.framework import StoredState
 from ops.main import main
-from ops.model import ActiveStatus
+from ops.model import ActiveStatus, ModelError
 
 logger = logging.getLogger(__name__)
 
@@ -55,15 +55,23 @@ ENV_PATH = "/etc/cassandra/cassandra-env.sh"
 
 def restart(container):
     logger.info("Restarting cassandra")
-    if container.get_service("cassandra").is_running():
-        container.stop("cassandra")
-    container.start("cassandra")
+    try:
+        if container.get_service("cassandra").is_running():
+            container.stop("cassandra")
+        container.start("cassandra")
+    except ModelError as e:
+        if str(e) != "service 'cassandra' not found":
+            raise
 
 
 def make_started(container):
-    if not container.get_service("cassandra").is_running():
-        logger.info("Starting Cassandra")
-        container.start("cassandra")
+    try:
+        if not container.get_service("cassandra").is_running():
+            logger.info("Starting Cassandra")
+            container.start("cassandra")
+    except ModelError as e:
+        if str(e) != "service 'cassandra' not found":
+            raise
 
 
 class CassandraOperatorCharm(CharmBase):

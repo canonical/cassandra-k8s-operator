@@ -16,13 +16,13 @@ Create a Juju model (say "lma" for your observability operators)
 
 ### Deploy Cassandra
 
-    juju deploy ./cassandra.charm --resource cassandra-image='dstathis/cassandra-operator-image:latest'
+    juju deploy ./cassandra-k8s.charm --resource cassandra-image='dstathis/cassandra-operator-image:latest'
 
 ### Scale Out Usage
 
 You may add additional Cassandra units for high availability
 
-    juju add-unit cassandra
+    juju add-unit cassandra-k8s
 
 ## Developing
 
