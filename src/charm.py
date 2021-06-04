@@ -84,6 +84,7 @@ class CassandraOperatorCharm(CharmBase):
         self._stored.set_default(root_password_secondary="")
         self.framework.observe(self.on.cassandra_pebble_ready, self.on_pebble_ready)
         self.framework.observe(self.on.config_changed, self.on_config_changed)
+        self.framework.observe(self.on.leader_elected, self.on_leader_elected)
         self.framework.observe(self.on["cql"].relation_joined, self.on_cql_joined)
         self.framework.observe(
             self.on["monitoring"].relation_joined, self.on_monitoring_joined
@@ -108,12 +109,15 @@ class CassandraOperatorCharm(CharmBase):
         self._configure(event)
         container = event.workload
         make_started(container)
-        self.update_address("cql", self._bind_address())
+        self.provider.update_address("cql", self._bind_address())
 
     @status_catcher
     def on_config_changed(self, event):
         self._configure(event)
         self.provider.update_port("cql", self.model.config["port"])
+
+    def on_leader_elected(self, event):
+        self.provider.update_address("cql", self._bind_address())
 
     def on_cql_joined(self, event):
         self.provider.update_port("cql", self.model.config["port"])
