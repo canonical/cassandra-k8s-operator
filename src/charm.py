@@ -108,6 +108,7 @@ class CassandraOperatorCharm(CharmBase):
         self._configure(event)
         container = event.workload
         make_started(container)
+        self.update_address("cql", self._bind_address())
 
     @status_catcher
     def on_config_changed(self, event):
@@ -116,6 +117,7 @@ class CassandraOperatorCharm(CharmBase):
 
     def on_cql_joined(self, event):
         self.provider.update_port("cql", self.model.config["port"])
+        self.provider.update_address("cql", self._bind_address())
 
     @status_catcher
     def on_monitoring_joined(self, event):

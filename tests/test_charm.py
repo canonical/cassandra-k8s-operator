@@ -109,6 +109,12 @@ class TestCharm(unittest.TestCase):
             self.harness.get_relation_data(rel_id, self.harness.model.app.name)["port"],
             "9042",
         )
+        self.assertEqual(
+            self.harness.get_relation_data(rel_id, self.harness.model.app.name)[
+                "address"
+            ],
+            "1.1.1.1",
+        )
 
     def test_request_db(self):
         rel_id = self.harness.add_relation("cql", "otherapp")

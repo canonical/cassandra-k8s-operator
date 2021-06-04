@@ -101,6 +101,12 @@ class CQLConsumer(ConsumerBase):
 
         return rel.data[rel.app].get("port")
 
+    def address(self, rel_id=None):
+        """Return the address which the cassandra instance is listening on"""
+        rel = self.framework.model.get_relation(self.relation_name, rel_id)
+
+        return rel.data[rel.app].get("address")
+
 
 class CQLProvider(ProviderBase):
     def __init__(self, charm, name, service, version=None):
@@ -112,11 +118,20 @@ class CQLProvider(ProviderBase):
     def update_port(self, relation_name, port):
         if self.charm.unit.is_leader():
             for relation in self.charm.model.relations[relation_name]:
-                logger.info("Setting address data for relation %s", relation)
+                logger.info("Setting port data for relation %s", relation)
                 if str(port) != relation.data[self.charm.app].get(
                     "port", None
                 ):
                     relation.data[self.charm.app]["port"] = str(port)
+
+    def update_address(self, relation_name, address):
+        if self.charm.unit.is_leader():
+            for relation in self.charm.model.relations[relation_name]:
+                logger.info("Setting address data for relation %s", relation)
+                if str(address) != relation.data[self.charm.app].get(
+                    "address", None
+                ):
+                    relation.data[self.charm.app]["address"] = str(address)
 
     @status_catcher
     def on_cql_changed(self, event):
