@@ -40,7 +40,6 @@ from cassandra.policies import RoundRobinPolicy
 from cassandra.query import SimpleStatement
 
 from ops.charm import CharmBase
-from ops.framework import StoredState
 from ops.main import main
 from ops.model import ActiveStatus, ModelError
 
@@ -75,13 +74,8 @@ def make_started(container):
 
 
 class CassandraOperatorCharm(CharmBase):
-    _stored = StoredState()
-
     def __init__(self, *args):
         super().__init__(*args)
-        self._stored.set_default(root_password="")
-        # If the _root_password() method partially completes we need to store the password while keeping self._stored.root_password empty
-        self._stored.set_default(root_password_secondary="")
         self.framework.observe(self.on.cassandra_pebble_ready, self.on_pebble_ready)
         self.framework.observe(self.on.config_changed, self.on_config_changed)
         self.framework.observe(self.on.leader_elected, self.on_leader_elected)
@@ -166,8 +160,10 @@ class CassandraOperatorCharm(CharmBase):
         self._configure(event)
 
     def _root_password(self, event):
-        if self._stored.root_password:
-            return self._stored.root_password
+        peer_relation = self.model.get_relation("cassandra-peers")
+        root_pass = peer_relation.data[self.app].get("root_password", None)
+        if root_pass is not None:
+            return root_pass
 
         # Without this the query to create a user for some reason does nothing
         if self._num_units() != self._goal_units():
@@ -195,10 +191,16 @@ class CassandraOperatorCharm(CharmBase):
                 )
             # Set system_auth replication here once we have pebble
             # See https://docs.datastax.com/en/cassandra-oss/3.0/cassandra/configuration/secureConfigNativeAuth.html
-            if not self._stored.root_password_secondary:
-                self._stored.root_password_secondary = generate_password()
+            root_pass_secondary = peer_relation.data[self.app].get(
+                "root_password_secondary", None
+            )
+            if root_pass_secondary is None:
+                root_pass_secondary = generate_password()
+                peer_relation.data[self.app][
+                    "root_password_secondary"
+                ] = root_pass_secondary
             query = SimpleStatement(
-                f"CREATE ROLE {ROOT_USER} WITH PASSWORD = '{self._stored.root_password_secondary}' AND SUPERUSER = true AND LOGIN = true",
+                f"CREATE ROLE {ROOT_USER} WITH PASSWORD = '{root_pass_secondary}' AND SUPERUSER = true AND LOGIN = true",
                 consistency_level=ConsistencyLevel.QUORUM,
             )
             session.execute(query)
@@ -213,7 +215,7 @@ class CassandraOperatorCharm(CharmBase):
 
         # Now disable the original superuser
         auth_provider = PlainTextAuthProvider(
-            username=ROOT_USER, password=self._stored.root_password_secondary
+            username=ROOT_USER, password=root_pass_secondary
         )
         cluster = Cluster(
             [self._bind_address()],
@@ -237,8 +239,8 @@ class CassandraOperatorCharm(CharmBase):
             )
         finally:
             cluster.shutdown()
-        self._stored.root_password = self._stored.root_password_secondary
-        return self._stored.root_password
+        peer_relation.data[self.app]["root_password"] = root_pass_secondary
+        return root_pass_secondary
 
     @contextlib.contextmanager
     def cql_connection(self, event):
