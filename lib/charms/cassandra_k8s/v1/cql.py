@@ -38,7 +38,7 @@ def status_catcher(func):
         try:
             func(self, *args, **kwargs)
         except DeferEventError as e:
-            logger.info("Defering event: %s because: %s", str(e.event), e.reason)
+            logger.info("Deferring event: %s because: %s", str(e.event), e.reason)
             e.event.defer()
 
     return new_func
