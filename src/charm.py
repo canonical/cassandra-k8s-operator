@@ -41,7 +41,7 @@ from cassandra.query import SimpleStatement
 
 from ops.charm import CharmBase
 from ops.main import main
-from ops.model import ActiveStatus, ModelError
+from ops.model import ActiveStatus, MaintenanceStatus, ModelError
 
 logger = logging.getLogger(__name__)
 
@@ -166,7 +166,7 @@ class CassandraOperatorCharm(CharmBase):
 
         # Without this the query to create a user for some reason does nothing
         if self._num_units() != self._goal_units():
-            self.unit.status = MaintenanceStatus()
+            self.unit.status = MaintenanceStatus("Waiting for units")
             raise DeferEventError(event, "Units not up in _root_password()")
 
         # First create a new superuser
@@ -186,7 +186,7 @@ class CassandraOperatorCharm(CharmBase):
                 session = cluster.connect()
             except NoHostAvailable as e:
                 logger.info("Caught exception %s:%s", type(e), e)
-                self.unit.status = MaintenanceStatus()
+                self.unit.status = MaintenanceStatus("Cassandra Starting")
                 raise DeferEventError(
                     event, "Can't connect to database in _root_password()"
                 )
@@ -230,7 +230,7 @@ class CassandraOperatorCharm(CharmBase):
                 session = cluster.connect()
             except NoHostAvailable as e:
                 logger.info("Caught exception %s:%s", type(e), e)
-                self.unit.status = MaintenanceStatus()
+                self.unit.status = MaintenanceStatus("Cassandra Starting")
                 raise DeferEventError(
                     event, "Can't connect to database in _root_password()"
                 )
@@ -262,7 +262,7 @@ class CassandraOperatorCharm(CharmBase):
             yield session
         except NoHostAvailable as e:
             logger.info("Caught exception %s:%s", type(e), e)
-            self.unit.status = MaintenanceStatus()
+            self.unit.status = MaintenanceStatus("Cassandra Starting")
             raise DeferEventError(event, "Can't connect to database")
         finally:
             cluster.shutdown
@@ -283,12 +283,12 @@ class CassandraOperatorCharm(CharmBase):
 
     def _configure(self, event):
         if self._num_units() != self._goal_units():
-            self.unit.status = MaintenanceStatus()
+            self.unit.status = MaintenanceStatus("Waiting for units")
             raise DeferEventError(event, "Units not up in _configure()")
 
         bind_address = self._bind_address()
         if bind_address is None:
-            self.unit.status = MaintenanceStatus()
+            self.unit.status = MaintenanceStatus("Waiting for network address")
             raise DeferEventError(event, "No ip address in _configure()")
         peer_rel = self.model.get_relation("cassandra-peers")
         peer_rel.data[self.unit]["peer_address"] = bind_address
@@ -337,14 +337,14 @@ class CassandraOperatorCharm(CharmBase):
     def _seeds(self, event):
         bind_address = self._bind_address()
         if bind_address is None:
-            self.unit.status = MaintenanceStatus()
+            self.unit.status = MaintenanceStatus("Waiting for network address")
             raise DeferEventError(event, "No ip address in _seeds()")
         peers = [bind_address]
         rel = self.model.get_relation("cassandra-peers")
         for unit in rel.units:
             addr = rel.data[unit].get("peer_address")
             if addr is None:
-                self.unit.status = MaintenanceStatus()
+                self.unit.status = MaintenanceStatus("Waiting for peer addresses")
                 raise DeferEventError(event, "No peer ip address in _seeds()")
             peers.append(addr)
         peers.sort()
@@ -375,7 +375,7 @@ class CassandraOperatorCharm(CharmBase):
     def _config_file(self, event):
         bind_address = self._bind_address()
         if bind_address is None:
-            self.unit.status = MaintenanceStatus()
+            self.unit.status = MaintenanceStatus("Waiting for network address")
             raise DeferEventError(event, "No ip address in _config_file()")
         conf = {
             "cluster_name": f"juju-cluster-{self.app.name}",
