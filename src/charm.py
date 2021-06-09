@@ -40,9 +40,8 @@ from cassandra.policies import RoundRobinPolicy
 from cassandra.query import SimpleStatement
 
 from ops.charm import CharmBase
-from ops.framework import StoredState
 from ops.main import main
-from ops.model import ActiveStatus, ModelError
+from ops.model import ActiveStatus, MaintenanceStatus, ModelError
 
 logger = logging.getLogger(__name__)
 
@@ -75,13 +74,8 @@ def make_started(container):
 
 
 class CassandraOperatorCharm(CharmBase):
-    _stored = StoredState()
-
     def __init__(self, *args):
         super().__init__(*args)
-        self._stored.set_default(root_password="")
-        # If the _root_password() method partially completes we need to store the password while keeping self._stored.root_password empty
-        self._stored.set_default(root_password_secondary="")
         self.framework.observe(self.on.cassandra_pebble_ready, self.on_pebble_ready)
         self.framework.observe(self.on.config_changed, self.on_config_changed)
         self.framework.observe(self.on.leader_elected, self.on_leader_elected)
@@ -166,11 +160,13 @@ class CassandraOperatorCharm(CharmBase):
         self._configure(event)
 
     def _root_password(self, event):
-        if self._stored.root_password:
-            return self._stored.root_password
+        peer_relation = self.model.get_relation("cassandra-peers")
+        if root_pass := peer_relation.data[self.app].get("root_password", None):
+            return root_pass
 
         # Without this the query to create a user for some reason does nothing
         if self._num_units() != self._goal_units():
+            self.unit.status = MaintenanceStatus("Waiting for units")
             raise DeferEventError(event, "Units not up in _root_password()")
 
         # First create a new superuser
@@ -190,15 +186,22 @@ class CassandraOperatorCharm(CharmBase):
                 session = cluster.connect()
             except NoHostAvailable as e:
                 logger.info("Caught exception %s:%s", type(e), e)
+                self.unit.status = MaintenanceStatus("Cassandra Starting")
                 raise DeferEventError(
                     event, "Can't connect to database in _root_password()"
                 )
             # Set system_auth replication here once we have pebble
             # See https://docs.datastax.com/en/cassandra-oss/3.0/cassandra/configuration/secureConfigNativeAuth.html
-            if not self._stored.root_password_secondary:
-                self._stored.root_password_secondary = generate_password()
+            root_pass_secondary = peer_relation.data[self.app].get(
+                "root_password_secondary", None
+            )
+            if root_pass_secondary is None:
+                root_pass_secondary = generate_password()
+                peer_relation.data[self.app][
+                    "root_password_secondary"
+                ] = root_pass_secondary
             query = SimpleStatement(
-                f"CREATE ROLE {ROOT_USER} WITH PASSWORD = '{self._stored.root_password_secondary}' AND SUPERUSER = true AND LOGIN = true",
+                f"CREATE ROLE {ROOT_USER} WITH PASSWORD = '{root_pass_secondary}' AND SUPERUSER = true AND LOGIN = true",
                 consistency_level=ConsistencyLevel.QUORUM,
             )
             session.execute(query)
@@ -213,7 +216,7 @@ class CassandraOperatorCharm(CharmBase):
 
         # Now disable the original superuser
         auth_provider = PlainTextAuthProvider(
-            username=ROOT_USER, password=self._stored.root_password_secondary
+            username=ROOT_USER, password=root_pass_secondary
         )
         cluster = Cluster(
             [self._bind_address()],
@@ -227,6 +230,7 @@ class CassandraOperatorCharm(CharmBase):
                 session = cluster.connect()
             except NoHostAvailable as e:
                 logger.info("Caught exception %s:%s", type(e), e)
+                self.unit.status = MaintenanceStatus("Cassandra Starting")
                 raise DeferEventError(
                     event, "Can't connect to database in _root_password()"
                 )
@@ -237,8 +241,8 @@ class CassandraOperatorCharm(CharmBase):
             )
         finally:
             cluster.shutdown()
-        self._stored.root_password = self._stored.root_password_secondary
-        return self._stored.root_password
+        peer_relation.data[self.app]["root_password"] = root_pass_secondary
+        return root_pass_secondary
 
     @contextlib.contextmanager
     def cql_connection(self, event):
@@ -258,6 +262,7 @@ class CassandraOperatorCharm(CharmBase):
             yield session
         except NoHostAvailable as e:
             logger.info("Caught exception %s:%s", type(e), e)
+            self.unit.status = MaintenanceStatus("Cassandra Starting")
             raise DeferEventError(event, "Can't connect to database")
         finally:
             cluster.shutdown
@@ -278,10 +283,11 @@ class CassandraOperatorCharm(CharmBase):
 
     def _configure(self, event):
         if self._num_units() != self._goal_units():
+            self.unit.status = MaintenanceStatus("Waiting for units")
             raise DeferEventError(event, "Units not up in _configure()")
 
-        bind_address = self._bind_address()
-        if bind_address is None:
+        if (bind_address := self._bind_address()) is None:
+            self.unit.status = MaintenanceStatus("Waiting for network address")
             raise DeferEventError(event, "No ip address in _configure()")
         peer_rel = self.model.get_relation("cassandra-peers")
         peer_rel.data[self.unit]["peer_address"] = bind_address
@@ -328,14 +334,14 @@ class CassandraOperatorCharm(CharmBase):
         return layer
 
     def _seeds(self, event):
-        bind_address = self._bind_address()
-        if bind_address is None:
+        if (bind_address := self._bind_address()) is None:
+            self.unit.status = MaintenanceStatus("Waiting for network address")
             raise DeferEventError(event, "No ip address in _seeds()")
         peers = [bind_address]
         rel = self.model.get_relation("cassandra-peers")
         for unit in rel.units:
-            addr = rel.data[unit].get("peer_address")
-            if addr is None:
+            if (addr := rel.data[unit].get("peer_address")) is None:
+                self.unit.status = MaintenanceStatus("Waiting for peer addresses")
                 raise DeferEventError(event, "No peer ip address in _seeds()")
             peers.append(addr)
         peers.sort()
@@ -364,8 +370,8 @@ class CassandraOperatorCharm(CharmBase):
                 raise
 
     def _config_file(self, event):
-        bind_address = self._bind_address()
-        if bind_address is None:
+        if (bind_address := self._bind_address()) is None:
+            self.unit.status = MaintenanceStatus("Waiting for network address")
             raise DeferEventError(event, "No ip address in _config_file()")
         conf = {
             "cluster_name": f"juju-cluster-{self.app.name}",

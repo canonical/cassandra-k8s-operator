@@ -138,7 +138,10 @@ class TestCharm(unittest.TestCase):
         )
 
     def test_root_password_is_set(self):
-        self.assertEqual(self.harness.charm._stored.root_password, "")
+        rel = self.harness.charm.model.get_relation("cassandra-peers")
+        self.assertEqual(
+            rel.data[self.harness.charm.app].get("root_password", None), None
+        )
         self.assertEqual(self.harness.charm._root_password(None), "password")
 
     @patch.object(CassandraOperatorCharm, "_goal_units", new=lambda x: 2)
