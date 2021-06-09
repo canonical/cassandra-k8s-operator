@@ -286,8 +286,7 @@ class CassandraOperatorCharm(CharmBase):
             self.unit.status = MaintenanceStatus("Waiting for units")
             raise DeferEventError(event, "Units not up in _configure()")
 
-        bind_address = self._bind_address()
-        if bind_address is None:
+        if (bind_address := self._bind_address()) is None:
             self.unit.status = MaintenanceStatus("Waiting for network address")
             raise DeferEventError(event, "No ip address in _configure()")
         peer_rel = self.model.get_relation("cassandra-peers")
@@ -335,15 +334,13 @@ class CassandraOperatorCharm(CharmBase):
         return layer
 
     def _seeds(self, event):
-        bind_address = self._bind_address()
-        if bind_address is None:
+        if (bind_address := self._bind_address()) is None:
             self.unit.status = MaintenanceStatus("Waiting for network address")
             raise DeferEventError(event, "No ip address in _seeds()")
         peers = [bind_address]
         rel = self.model.get_relation("cassandra-peers")
         for unit in rel.units:
-            addr = rel.data[unit].get("peer_address")
-            if addr is None:
+            if (addr := rel.data[unit].get("peer_address")) is None:
                 self.unit.status = MaintenanceStatus("Waiting for peer addresses")
                 raise DeferEventError(event, "No peer ip address in _seeds()")
             peers.append(addr)
@@ -373,8 +370,7 @@ class CassandraOperatorCharm(CharmBase):
                 raise
 
     def _config_file(self, event):
-        bind_address = self._bind_address()
-        if bind_address is None:
+        if (bind_address := self._bind_address()) is None:
             self.unit.status = MaintenanceStatus("Waiting for network address")
             raise DeferEventError(event, "No ip address in _config_file()")
         conf = {
