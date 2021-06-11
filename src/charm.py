@@ -25,6 +25,7 @@ from charms.cassandra_k8s.v1.cql import (
     status_catcher,
     generate_password,
     CQLProvider,
+    sanitize_name,
 )
 from charms.prometheus.v1.prometheus import PrometheusConsumer
 
@@ -94,6 +95,9 @@ class CassandraOperatorCharm(CharmBase):
             self.on_cassandra_peers_departed,
         )
         self.provider = CQLProvider(charm=self, name="cql", service="cassandra")
+        self.framework.observe(
+            self.provider.on.data_changed, self.on_provider_data_changed
+        )
         self.prometheus_consumer = PrometheusConsumer(
             charm=self, name="monitoring", consumes={"Prometheus": ">=2"}
         )
@@ -158,6 +162,27 @@ class CassandraOperatorCharm(CharmBase):
     @status_catcher
     def on_cassandra_peers_departed(self, event):
         self._configure(event)
+
+    @status_catcher
+    def on_provider_data_changed(self, event):
+        if not self.unit.is_leader():
+            return
+        creds = self.provider.credentials(event.rel_id)
+        if creds == []:
+            username = f"juju-user-{event.app_name}"
+            password = generate_password()
+            self._create_user(event, username, password)
+            creds = [username, password]
+            self.provider.set_credentials(event.rel_id, creds)
+
+        num_dbs = self.provider.requested_databases(event.rel_id)
+        dbs = self.provider.databases(event.rel_id)
+        if num_dbs > len(dbs):
+            for i in range(len(dbs), num_dbs):
+                db_name = f"juju_db_{sanitize_name(event.app_name)}_{i}"
+                self._create_db(event, db_name, creds[0])
+                dbs.append(db_name)
+        self.provider.set_databases(event.rel_id, dbs)
 
     def _root_password(self, event):
         peer_relation = self.model.get_relation("cassandra-peers")
@@ -267,13 +292,13 @@ class CassandraOperatorCharm(CharmBase):
         finally:
             cluster.shutdown
 
-    def create_user(self, event, user, password):
+    def _create_user(self, event, user, password):
         with self.cql_connection(event) as conn:
             conn.execute(
                 f"CREATE ROLE IF NOT EXISTS '{user}' WITH PASSWORD = '{password}' AND LOGIN = true"
             )
 
-    def create_db(self, event, db_name, user):
+    def _create_db(self, event, db_name, user):
         with self.cql_connection(event) as conn:
             # Review replication strategy
             conn.execute(
@@ -311,6 +336,9 @@ class CassandraOperatorCharm(CharmBase):
 
         if self.unit.is_leader():
             self._root_password(event)
+
+        if self.unit.is_leader():
+            self.provider.ready()
 
         self.unit.status = ActiveStatus()
         logger.debug("Pod spec set successfully.")
