@@ -125,18 +125,18 @@ class DataChangedEvent(EventBase):
         self.app_name = snapshot["app_name"]
 
 
-class CQLProviderCharmEvents(CharmEvents):
+class CassandraProviderCharmEvents(CharmEvents):
     data_changed = EventSource(DataChangedEvent)
 
 
 class CQLProvider(ProviderBase):
-    on = CQLProviderCharmEvents()
+    on = CassandraProviderCharmEvents()
 
     def __init__(self, charm, name, service, version=None):
         super().__init__(charm, name, service, version)
         self.charm = charm
         events = self.charm.on[name]
-        self.framework.observe(events.relation_changed, self.on_cql_changed)
+        self.framework.observe(events.relation_changed, self.on_relation_changed)
 
     def update_port(self, relation_name, port):
         if self.charm.unit.is_leader():
@@ -177,7 +177,7 @@ class CQLProvider(ProviderBase):
         rel = self.framework.model.get_relation(self.name, rel_id)
         rel.data[self.charm.app]["databases"] = json.dumps(dbs)
 
-    def on_cql_changed(self, event):
+    def on_relation_changed(self, event):
         self.on.data_changed.emit(event.relation.id, event.app.name)
 
 

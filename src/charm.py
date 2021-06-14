@@ -20,7 +20,7 @@ import logging
 import subprocess
 import yaml
 
-from charms.cassandra_k8s.v1.cql import (
+from charms.cassandra_k8s.v0.cassandra import (
     DeferEventError,
     status_catcher,
     generate_password,
@@ -80,7 +80,9 @@ class CassandraOperatorCharm(CharmBase):
         self.framework.observe(self.on.cassandra_pebble_ready, self.on_pebble_ready)
         self.framework.observe(self.on.config_changed, self.on_config_changed)
         self.framework.observe(self.on.leader_elected, self.on_leader_elected)
-        self.framework.observe(self.on["cql"].relation_joined, self.on_cql_joined)
+        self.framework.observe(
+            self.on["database"].relation_joined, self.on_database_joined
+        )
         self.framework.observe(
             self.on["monitoring"].relation_joined, self.on_monitoring_joined
         )
@@ -94,7 +96,7 @@ class CassandraOperatorCharm(CharmBase):
             self.on["cassandra_peers"].relation_departed,
             self.on_cassandra_peers_departed,
         )
-        self.provider = CQLProvider(charm=self, name="cql", service="cassandra")
+        self.provider = CQLProvider(charm=self, name="database", service="cassandra")
         self.framework.observe(
             self.provider.on.data_changed, self.on_provider_data_changed
         )
@@ -107,19 +109,19 @@ class CassandraOperatorCharm(CharmBase):
         self._configure(event)
         container = event.workload
         make_started(container)
-        self.provider.update_address("cql", self._bind_address())
+        self.provider.update_address("database", self._bind_address())
 
     @status_catcher
     def on_config_changed(self, event):
         self._configure(event)
-        self.provider.update_port("cql", self.model.config["port"])
+        self.provider.update_port("database", self.model.config["port"])
 
     def on_leader_elected(self, event):
-        self.provider.update_address("cql", self._bind_address())
+        self.provider.update_address("database", self._bind_address())
 
-    def on_cql_joined(self, event):
-        self.provider.update_port("cql", self.model.config["port"])
-        self.provider.update_address("cql", self._bind_address())
+    def on_database_joined(self, event):
+        self.provider.update_port("database", self.model.config["port"])
+        self.provider.update_address("database", self._bind_address())
 
     @status_catcher
     def on_monitoring_joined(self, event):
@@ -270,7 +272,7 @@ class CassandraOperatorCharm(CharmBase):
         return root_pass_secondary
 
     @contextlib.contextmanager
-    def cql_connection(self, event):
+    def database_connection(self, event):
         auth_provider = PlainTextAuthProvider(
             username=ROOT_USER, password=self._root_password(event)
         )
@@ -293,13 +295,13 @@ class CassandraOperatorCharm(CharmBase):
             cluster.shutdown
 
     def _create_user(self, event, user, password):
-        with self.cql_connection(event) as conn:
+        with self.database_connection(event) as conn:
             conn.execute(
                 f"CREATE ROLE IF NOT EXISTS '{user}' WITH PASSWORD = '{password}' AND LOGIN = true"
             )
 
     def _create_db(self, event, db_name, user):
-        with self.cql_connection(event) as conn:
+        with self.database_connection(event) as conn:
             # Review replication strategy
             conn.execute(
                 f"CREATE KEYSPACE IF NOT EXISTS {db_name} WITH REPLICATION = {{ 'class' : 'SimpleStrategy', 'replication_factor' : {self._goal_units()} }}"

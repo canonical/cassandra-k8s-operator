@@ -28,8 +28,8 @@ resources:
     type: oci-image
     description: OCI image for Cassandra
 provides:
-  cql:
-    interface: cql
+  database:
+    interface: cassandra
 requires:
   monitoring:
     interface: prometheus
