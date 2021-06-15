@@ -20,11 +20,12 @@ import logging
 import subprocess
 import yaml
 
-from charms.cassandra_k8s.v1.cql import (
+from charms.cassandra_k8s.v0.cassandra import (
     DeferEventError,
     status_catcher,
     generate_password,
     CQLProvider,
+    sanitize_name,
 )
 from charms.prometheus.v1.prometheus import PrometheusConsumer
 
@@ -79,7 +80,9 @@ class CassandraOperatorCharm(CharmBase):
         self.framework.observe(self.on.cassandra_pebble_ready, self.on_pebble_ready)
         self.framework.observe(self.on.config_changed, self.on_config_changed)
         self.framework.observe(self.on.leader_elected, self.on_leader_elected)
-        self.framework.observe(self.on["cql"].relation_joined, self.on_cql_joined)
+        self.framework.observe(
+            self.on["database"].relation_joined, self.on_database_joined
+        )
         self.framework.observe(
             self.on["monitoring"].relation_joined, self.on_monitoring_joined
         )
@@ -93,7 +96,10 @@ class CassandraOperatorCharm(CharmBase):
             self.on["cassandra_peers"].relation_departed,
             self.on_cassandra_peers_departed,
         )
-        self.provider = CQLProvider(charm=self, name="cql", service="cassandra")
+        self.provider = CQLProvider(charm=self, name="database", service="cassandra")
+        self.framework.observe(
+            self.provider.on.data_changed, self.on_provider_data_changed
+        )
         self.prometheus_consumer = PrometheusConsumer(
             charm=self, name="monitoring", consumes={"Prometheus": ">=2"}
         )
@@ -103,19 +109,19 @@ class CassandraOperatorCharm(CharmBase):
         self._configure(event)
         container = event.workload
         make_started(container)
-        self.provider.update_address("cql", self._bind_address())
+        self.provider.update_address("database", self._bind_address())
 
     @status_catcher
     def on_config_changed(self, event):
         self._configure(event)
-        self.provider.update_port("cql", self.model.config["port"])
+        self.provider.update_port("database", self.model.config["port"])
 
     def on_leader_elected(self, event):
-        self.provider.update_address("cql", self._bind_address())
+        self.provider.update_address("database", self._bind_address())
 
-    def on_cql_joined(self, event):
-        self.provider.update_port("cql", self.model.config["port"])
-        self.provider.update_address("cql", self._bind_address())
+    def on_database_joined(self, event):
+        self.provider.update_port("database", self.model.config["port"])
+        self.provider.update_address("database", self._bind_address())
 
     @status_catcher
     def on_monitoring_joined(self, event):
@@ -158,6 +164,27 @@ class CassandraOperatorCharm(CharmBase):
     @status_catcher
     def on_cassandra_peers_departed(self, event):
         self._configure(event)
+
+    @status_catcher
+    def on_provider_data_changed(self, event):
+        if not self.unit.is_leader():
+            return
+        creds = self.provider.credentials(event.rel_id)
+        if creds == []:
+            username = f"juju-user-{event.app_name}"
+            password = generate_password()
+            self._create_user(event, username, password)
+            creds = [username, password]
+            self.provider.set_credentials(event.rel_id, creds)
+
+        num_dbs = self.provider.requested_databases(event.rel_id)
+        dbs = self.provider.databases(event.rel_id)
+        if num_dbs > len(dbs):
+            for i in range(len(dbs), num_dbs):
+                db_name = f"juju_db_{sanitize_name(event.app_name)}_{i}"
+                self._create_db(event, db_name, creds[0])
+                dbs.append(db_name)
+        self.provider.set_databases(event.rel_id, dbs)
 
     def _root_password(self, event):
         peer_relation = self.model.get_relation("cassandra-peers")
@@ -245,7 +272,7 @@ class CassandraOperatorCharm(CharmBase):
         return root_pass_secondary
 
     @contextlib.contextmanager
-    def cql_connection(self, event):
+    def database_connection(self, event):
         auth_provider = PlainTextAuthProvider(
             username=ROOT_USER, password=self._root_password(event)
         )
@@ -267,14 +294,14 @@ class CassandraOperatorCharm(CharmBase):
         finally:
             cluster.shutdown
 
-    def create_user(self, event, user, password):
-        with self.cql_connection(event) as conn:
+    def _create_user(self, event, user, password):
+        with self.database_connection(event) as conn:
             conn.execute(
                 f"CREATE ROLE IF NOT EXISTS '{user}' WITH PASSWORD = '{password}' AND LOGIN = true"
             )
 
-    def create_db(self, event, db_name, user):
-        with self.cql_connection(event) as conn:
+    def _create_db(self, event, db_name, user):
+        with self.database_connection(event) as conn:
             # Review replication strategy
             conn.execute(
                 f"CREATE KEYSPACE IF NOT EXISTS {db_name} WITH REPLICATION = {{ 'class' : 'SimpleStrategy', 'replication_factor' : {self._goal_units()} }}"
@@ -311,6 +338,9 @@ class CassandraOperatorCharm(CharmBase):
 
         if self.unit.is_leader():
             self._root_password(event)
+
+        if self.unit.is_leader():
+            self.provider.ready()
 
         self.unit.status = ActiveStatus()
         logger.debug("Pod spec set successfully.")

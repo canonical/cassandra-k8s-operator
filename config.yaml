@@ -13,10 +13,6 @@
 #  limitations under the License.
 
 options:
-  image_path:
-    default: 'cassandra'
-    description: The docker image to use
-    type: string
   port:
     default: 9042
     description: The port to expose for cql connections

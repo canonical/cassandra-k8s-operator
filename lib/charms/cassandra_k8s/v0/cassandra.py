@@ -17,6 +17,8 @@ import json
 import logging
 import secrets
 import string
+from ops.charm import CharmEvents
+from ops.framework import EventBase, EventSource
 from ops.relation import ConsumerBase, ProviderBase
 
 LIBID = "abcdefg"
@@ -108,12 +110,33 @@ class CQLConsumer(ConsumerBase):
         return rel.data[rel.app].get("address")
 
 
+class DataChangedEvent(EventBase):
+    """Event emitted when the relation data has changed"""
+    def __init__(self, handle, rel_id, app_name):
+        super().__init__(handle)
+        self.rel_id = rel_id
+        self.app_name = app_name
+
+    def snapshot(self):
+        return {"rel_id": self.rel_id, "app_name": self.app_name}
+
+    def restore(self, snapshot):
+        self.rel_id = snapshot["rel_id"]
+        self.app_name = snapshot["app_name"]
+
+
+class CassandraProviderCharmEvents(CharmEvents):
+    data_changed = EventSource(DataChangedEvent)
+
+
 class CQLProvider(ProviderBase):
+    on = CassandraProviderCharmEvents()
+
     def __init__(self, charm, name, service, version=None):
         super().__init__(charm, name, service, version)
         self.charm = charm
         events = self.charm.on[name]
-        self.framework.observe(events.relation_changed, self.on_cql_changed)
+        self.framework.observe(events.relation_changed, self.on_relation_changed)
 
     def update_port(self, relation_name, port):
         if self.charm.unit.is_leader():
@@ -133,30 +156,29 @@ class CQLProvider(ProviderBase):
                 ):
                     relation.data[self.charm.app]["address"] = str(address)
 
-    @status_catcher
-    def on_cql_changed(self, event):
-        if not self.charm.unit.is_leader():
-            return
+    def credentials(self, rel_id):
+        rel = self.framework.model.get_relation(self.name, rel_id)
+        creds_json = rel.data[self.charm.app].get("credentials", "[]")
+        return json.loads(creds_json)
 
-        creds_json = event.relation.data[self.charm.app].get("credentials", None)
-        if creds_json is None:
-            username = f"juju-user-{event.app.name}"
-            password = generate_password()
-            self.charm.create_user(event, username, password)
-            credentials = (username, password)
-            event.relation.data[self.charm.app]["credentials"] = json.dumps(credentials)
-        else:
-            credentials = json.loads(creds_json)
+    def set_credentials(self, rel_id, creds):
+        rel = self.framework.model.get_relation(self.name, rel_id)
+        rel.data[self.charm.app]["credentials"] = json.dumps(creds)
 
-        num_dbs = int(event.relation.data[event.app].get("requested_databases", 0))
-        dbs_json = event.relation.data[self.charm.app].get("databases") or "[]"
-        dbs = json.loads(dbs_json)
-        if num_dbs > len(dbs):
-            for i in range(len(dbs), num_dbs):
-                db_name = f"juju_db_{sanitize_name(event.app.name)}_{i}"
-                self.charm.create_db(event, db_name, credentials[0])
-                dbs.append(db_name)
-        event.relation.data[self.charm.app]["databases"] = json.dumps(dbs)
+    def requested_databases(self, rel_id):
+        rel = self.framework.model.get_relation(self.name, rel_id)
+        return int(rel.data[rel.app].get("requested_databases", 0))
+
+    def databases(self, rel_id):
+        rel = self.framework.model.get_relation(self.name, rel_id)
+        return json.loads(rel.data[self.charm.app].get("databases") or "[]")
+
+    def set_databases(self, rel_id, dbs):
+        rel = self.framework.model.get_relation(self.name, rel_id)
+        rel.data[self.charm.app]["databases"] = json.dumps(dbs)
+
+    def on_relation_changed(self, event):
+        self.on.data_changed.emit(event.relation.id, event.app.name)
 
 
 def sanitize_name(name):
