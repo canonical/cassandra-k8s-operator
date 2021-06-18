@@ -121,7 +121,7 @@ class TestCharm(unittest.TestCase):
         self.assertIsInstance(rel_id, int)
         self.harness.add_relation_unit(rel_id, "otherapp/0")
         self.harness.update_relation_data(
-            rel_id, "otherapp", {"requested_databases": "1"}
+            rel_id, "otherapp", {"requested_databases": '["db_name"]'}
         )
         data = self.harness.get_relation_data(rel_id, "cassandra-k8s")
         assert len(json.loads(data["databases"])) == 1

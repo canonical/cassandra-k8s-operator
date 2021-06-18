@@ -17,9 +17,8 @@ import json
 import logging
 import secrets
 import string
-from ops.charm import CharmEvents
-from ops.framework import EventBase, EventSource
-from ops.relation import ConsumerBase, ProviderBase
+from ops.framework import EventBase, EventSource, ObjectEvents
+from ops.relation import ConsumerBase, ProviderBase, ConsumerEvents
 
 LIBID = "abcdefg"
 LIBAPI = 1
@@ -46,11 +45,39 @@ def status_catcher(func):
     return new_func
 
 
-class CQLConsumer(ConsumerBase):
+class CassandraConsumerError(Exception):
+    pass
+
+
+class DatabasesChangedEvent(EventBase):
+    """Event emitted when the relation data has changed"""
+    def __init__(self, handle, rel_id):
+        super().__init__(handle)
+        self.rel_id = rel_id
+
+    def snapshot(self):
+        return {"rel_id": self.rel_id}
+
+    def restore(self, snapshot):
+        self.rel_id = snapshot["rel_id"]
+
+
+class CassandraConsumerEvents(ConsumerEvents):
+    databases_changed = EventSource(DatabasesChangedEvent)
+
+
+class CassandraConsumer(ConsumerBase):
+    on = CassandraConsumerEvents()
+
     def __init__(self, charm, name, consumes, multi=False):
         super().__init__(charm, name, consumes, multi)
         self.charm = charm
         self.relation_name = name
+        events = self.charm.on[name]
+        self.framework.observe(events.relation_changed, self.on_relation_changed)
+
+    def on_relation_changed(self, event):
+        self.on.databases_changed.emit(rel_id=event.relation.id)
 
     def credentials(self, rel_id=None):
         """
@@ -75,27 +102,26 @@ class CQLConsumer(ConsumerBase):
         dbs = relation_data.get('databases')
         return json.loads(dbs) if dbs else []
 
-    def new_database(self, rel_id=None):
+    def new_database(self, rel_id=None, name_suffix=""):
         """Request creation of an additional database
 
+        Args:
+            rel_id: Relation id. Required for multi mode.
+            name_suffix (str): Suffix to append to the datatbase name. This is
+                required if you request multiple databases.
         """
-        if not self.charm.unit.is_leader():
-            return
-
         rel = self.framework.model.get_relation(self.relation_name, rel_id)
 
-        rel_data = rel.data[self.charm.app]
-        dbs = rel_data.get('requested_databases', 0)
-        rel.data[self.charm.app]['requested_databases'] = str(dbs + 1)
-
-    def request_databases(self, num_databases, rel_id=None):
-        """Request n databases"""
-        if not self.charm.unit.is_leader():
-            return
-
-        rel = self.framework.model.get_relation(self.relation_name, rel_id)
-
-        rel.data[self.charm.app]['requested_databases'] = str(num_databases)
+        if name_suffix:
+            name_suffix = "_{}".format(name_suffix)
+        db_name = "juju_db_{}_{}{}".format(sanitize_name(self.charm.model.name), sanitize_name(self.charm.app.name), sanitize_name(name_suffix))
+        if len(db_name) > 48:
+            raise CassandraConsumerError("Database name can not be more than 48 characters")
+        dbs = self._requested_databases(rel)
+        dbs.append(db_name)
+        if not len(dbs) == len(set(dbs)):
+            raise CassandraConsumerError("Database names are not unique")
+        self._set_requested_databases(rel, dbs)
 
     def port(self, rel_id=None):
         """Return the port which the cassandra instance is listening on"""
@@ -108,6 +134,13 @@ class CQLConsumer(ConsumerBase):
         rel = self.framework.model.get_relation(self.relation_name, rel_id)
 
         return rel.data[rel.app].get("address")
+
+    def _requested_databases(self, relation):
+        dbs_json = relation.data[self.charm.app].get("requested_databases", "[]")
+        return json.loads(dbs_json)
+
+    def _set_requested_databases(self, relation, requested_databases):
+        relation.data[self.charm.app]["requested_databases"] = json.dumps(requested_databases)
 
 
 class DataChangedEvent(EventBase):
@@ -125,12 +158,12 @@ class DataChangedEvent(EventBase):
         self.app_name = snapshot["app_name"]
 
 
-class CassandraProviderCharmEvents(CharmEvents):
+class CassandraProviderEvents(ObjectEvents):
     data_changed = EventSource(DataChangedEvent)
 
 
-class CQLProvider(ProviderBase):
-    on = CassandraProviderCharmEvents()
+class CassandraProvider(ProviderBase):
+    on = CassandraProviderEvents()
 
     def __init__(self, charm, name, service, version=None):
         super().__init__(charm, name, service, version)
@@ -167,7 +200,7 @@ class CQLProvider(ProviderBase):
 
     def requested_databases(self, rel_id):
         rel = self.framework.model.get_relation(self.name, rel_id)
-        return int(rel.data[rel.app].get("requested_databases", 0))
+        return json.loads(rel.data[rel.app].get("requested_databases", "[]"))
 
     def databases(self, rel_id):
         rel = self.framework.model.get_relation(self.name, rel_id)
