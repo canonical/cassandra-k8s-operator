@@ -49,6 +49,14 @@ class CassandraConsumerError(Exception):
     pass
 
 
+class NameDuplicateError(CassandraConsumerError):
+    pass
+
+
+class NameLengthError(CassandraConsumerError):
+    pass
+
+
 class DatabasesChangedEvent(EventBase):
     """Event emitted when the relation data has changed"""
     def __init__(self, handle, rel_id):
@@ -117,11 +125,11 @@ class CassandraConsumer(ConsumerBase):
         db_name = "juju_db_{}_{}{}".format(sanitize_name(self.charm.model.name), sanitize_name(self.charm.app.name), sanitize_name(name_suffix))
         # Cassandra does not allow keyspace names longer than 48 characters
         if len(db_name) > 48:
-            raise CassandraConsumerError("Database name can not be more than 48 characters")
+            raise NameLengthError("Database name can not be more than 48 characters")
         dbs = self._requested_databases(rel)
         dbs.append(db_name)
         if not len(dbs) == len(set(dbs)):
-            raise CassandraConsumerError("Database names are not unique")
+            raise NameDuplicateError("Database names are not unique")
         self._set_requested_databases(rel, dbs)
 
     def port(self, rel_id=None):
