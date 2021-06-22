@@ -24,8 +24,7 @@ from charms.cassandra_k8s.v0.cassandra import (
     DeferEventError,
     status_catcher,
     generate_password,
-    CQLProvider,
-    sanitize_name,
+    CassandraProvider,
 )
 from charms.prometheus.v1.prometheus import PrometheusConsumer
 
@@ -96,7 +95,10 @@ class CassandraOperatorCharm(CharmBase):
             self.on["cassandra_peers"].relation_departed,
             self.on_cassandra_peers_departed,
         )
-        self.provider = CQLProvider(charm=self, name="database", service="cassandra")
+        # TODO: We need to query the version from the database itself
+        self.provider = CassandraProvider(
+            charm=self, name="database", service="cassandra", version="3.11"
+        )
         self.framework.observe(
             self.provider.on.data_changed, self.on_provider_data_changed
         )
@@ -177,13 +179,12 @@ class CassandraOperatorCharm(CharmBase):
             creds = [username, password]
             self.provider.set_credentials(event.rel_id, creds)
 
-        num_dbs = self.provider.requested_databases(event.rel_id)
+        requested_dbs = self.provider.requested_databases(event.rel_id)
         dbs = self.provider.databases(event.rel_id)
-        if num_dbs > len(dbs):
-            for i in range(len(dbs), num_dbs):
-                db_name = f"juju_db_{sanitize_name(event.app_name)}_{i}"
-                self._create_db(event, db_name, creds[0])
-                dbs.append(db_name)
+        for db in requested_dbs:
+            if db not in dbs:
+                self._create_db(event, db, creds[0])
+                dbs.append(db)
         self.provider.set_databases(event.rel_id, dbs)
 
     def _root_password(self, event):
