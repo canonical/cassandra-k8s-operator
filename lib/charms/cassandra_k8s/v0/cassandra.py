@@ -1,3 +1,129 @@
+"""
+## Overview
+
+This document explains how to integrate with the Cassandra charm for the
+purposes of consuming a cassandra database. It also explains how alternative
+implementations of the Cassandra charm may maintain the same interface and be
+backward compatible with all currently integrated charms. Finally this document
+is the authoritative reference on the structure of relation data that is shared
+between Cassandra charms and any other charm that intends to use the database.
+
+## Consumer Library Usage
+
+The Cassandra charm library uses the [Provider and
+Consumer](https://ops.readthedocs.io/en/latest/#module-ops.relation) objects
+from the Operator Framework. Charms that would like to use a Cassandra database
+must use the `CassandraConsumer` object from the charm library. Using the
+`CassandraConsumer` object requires instantiating it, typically in the
+constructor of your charm. The `CassandraConsumer` constructor requires the
+name of the relation over which a database will be used. This relation must use
+the `cassandra` interface. In addition the constructor also requires a
+`consumes` specification, which is a dictionary with key `cassandra` (also see
+Provider Library Usage below) and a value that represents the minimum
+acceptable version of Cassandra. This version string can be in any format that
+is compatible with the Python [Semantic Version
+module](https://pypi.org/project/semantic-version/). For example, assuming your
+charm consumes a database over a rlation named "monitoring", you may
+instantiate `CassandraConsumer` as follows
+
+    from charms.cassandra_k8s.v0.cassandra import CassandraConsumer
+
+    def __init__(self, *args):
+        super().__init__(*args)
+        ...
+        self.cassandra_consumer = CassandraConsumer(
+            self, "monitoring", {"cassandra": ">=3"}
+        )
+        ...
+
+This example hard codes the consumes dictionary argument containing the minimal
+Cassandra version required, however you may want to consider generating this
+dictionary by some other means, such as a `self.consumes` property in your
+charm. This is because the minimum required Cassandra version may change when
+you upgrade your charm. Of course it is expected that you will keep this
+version string updated as you develop newer releases of your charm. If the
+version string can be determined at run time by inspecting the actual deployed
+version of your charmed application, this would be ideal.
+
+An instantiated `CassandraConsumer` object may be used to request new databases
+using the `new_database()` method. This method requires no arguments unless you
+require multiple databases. If multiple databases are requested, you must
+provide a unique `name_suffix` argument. For example
+
+    def _on_database_relation_joined(self, event):
+        self.cassandra_consumer.new_database(name_suffix="db1")
+        self.cassandra_consumer.new_database(name_suffix="db2")
+
+The `address`, `port`, `databases`, and `credentials` methods can all be called
+to get the relevant information from the relation data.
+
+## Provider Library Usage
+
+The `CassandraProvider` object may be used by Cassandra charms to manage
+relations with their clients. For this purposes a Cassandra charm needs to do
+three things
+
+1. Instantiate the `CassandraProvider` object providing it with three key
+pieces of information
+
+  - Name of the relation that the Cassandra charm uses to interact with
+    clients.  This relation must conform to the `cassandra` interface.
+
+  - A service name. Although this is an arbitrary string, it must be the same
+    string that clients will use as the key of their `consumes` specification.
+    It is recommended that this key be `cassandra`.
+
+  - The Cassandra application version. Since a system administrator may choose
+    to deploy the Cassandra charm with a non default version of Cassandra, it
+    is strongly recommended that the version string be determined by actually
+    querying the running instance of Cassandra.
+
+  For example a Cassandra charm may instantiate the `CassandraProvider` in its
+  constructor as follows
+
+    from charms.cassandra_k8s.v0.cassandra import CassandraProvider
+
+    def __init__(self, *args):
+        super().__init__(*args)
+        ...
+        self.prometheus_provider = CassandraProvider(
+                self, "database", "cassandra", self.version
+            )
+        ...
+
+2. A Cassandra charm must set the address, port, and credentials when the
+information becomes available. For example
+
+    ...
+    self.cassandra_provider.update_port("database", port)
+    self.cassandra_provider.update_address("database", address)
+    self.cassandra_provider.set_credentials(rel_id, [username, password])
+    ...
+
+3. A Cassandra charm needs to respond to the `DataChanged` event of the
+`CassandraProvider` by adding itself as and observer for these events, as in
+
+    self.framework.observe(
+        self.cassandra_provider.on.data_changed,
+        self._on_provider_data_changed,
+    )
+
+In responding to the `DataChanged` event the Cassandra charm must create any
+non existent databases and update the relation data to reflect reality. For
+this purpose the `CassandraProvider` object exposes a `set_databases()` that a
+list of database names can be provided to.
+
+    def _on_provider_data_changed(self, event):
+        ...
+        existing_dbs = self.cassandra_provider.databases(event.rel_id):
+        for db in self.cassandra_provider.requested_databases(event.rel_id):
+            if db not in existing_dbs:
+                self._create_database(db)
+                existing_databases.append(db)
+        self.cassandra_provider.set_databases(event.rel_id, existing_dbs)
+        ...
+"""
+
 #  Copyright 2021 Canonical Ltd.
 #
 #  Licensed under the Apache License, Version 2.0 (the "License");
@@ -91,6 +217,9 @@ class CassandraConsumer(ConsumerBase):
         """
         Returns a dict of credentials
         {"username": <username>, "password": <password>}
+
+        Args:
+            rel_id: Relation id. Required for multi mode.
         """
         rel = self.framework.model.get_relation(self.relation_name, rel_id)
 
@@ -99,7 +228,10 @@ class CassandraConsumer(ConsumerBase):
         return json.loads(creds_json) if creds_json is not None else ()
 
     def databases(self, rel_id=None):
-        """List of currently available databases
+        """List of currently available databases.
+
+        Args:
+            rel_id: Relation id. Required for multi mode.
 
         Returns:
             list: list of database names
@@ -111,7 +243,7 @@ class CassandraConsumer(ConsumerBase):
         return json.loads(dbs) if dbs else []
 
     def new_database(self, rel_id=None, name_suffix=""):
-        """Request creation of an additional database
+        """Request creation of an additional database.
 
         Args:
             rel_id: Relation id. Required for multi mode.
@@ -133,22 +265,32 @@ class CassandraConsumer(ConsumerBase):
         self._set_requested_databases(rel, dbs)
 
     def port(self, rel_id=None):
-        """Return the port which the cassandra instance is listening on"""
+        """Return the port which the cassandra instance is listening on.
+
+        Args:
+            rel_id: Relation id. Required for multi mode.
+        """
         rel = self.framework.model.get_relation(self.relation_name, rel_id)
 
         return rel.data[rel.app].get("port")
 
     def address(self, rel_id=None):
-        """Return the address which the cassandra instance is listening on"""
+        """Return the address which the cassandra instance is listening on.
+
+        Args:
+            rel_id: Relation id. Required for multi mode.
+        """
         rel = self.framework.model.get_relation(self.relation_name, rel_id)
 
         return rel.data[rel.app].get("address")
 
     def _requested_databases(self, relation):
+        """Return the list of requested databases."""
         dbs_json = relation.data[self.charm.app].get("requested_databases", "[]")
         return json.loads(dbs_json)
 
     def _set_requested_databases(self, relation, requested_databases):
+        """Set the list of requested databases."""
         relation.data[self.charm.app]["requested_databases"] = json.dumps(requested_databases)
 
 

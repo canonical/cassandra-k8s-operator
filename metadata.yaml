@@ -32,7 +32,7 @@ provides:
     interface: cassandra
 requires:
   monitoring:
-    interface: prometheus
+    interface: prometheus_scrape
 peers:
   cassandra-peers:
     interface: cassandra-peers

@@ -41,3 +41,7 @@ Install the development requirements
 Just run `run_tests`:
 
     ./run_tests
+
+## Credit
+
+Much of the documentation in this repo is adapted from [prometheus-operator](https://github.com/canonical/prometheus-operator)

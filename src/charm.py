@@ -112,6 +112,7 @@ class CassandraOperatorCharm(CharmBase):
         container = event.workload
         make_started(container)
         self.provider.update_address("database", self._bind_address())
+        self._reset_monitoring()
 
     @status_catcher
     def on_config_changed(self, event):
@@ -120,13 +121,28 @@ class CassandraOperatorCharm(CharmBase):
 
     def on_leader_elected(self, event):
         self.provider.update_address("database", self._bind_address())
+        self._reset_monitoring()
 
     def on_database_joined(self, event):
         self.provider.update_port("database", self.model.config["port"])
         self.provider.update_address("database", self._bind_address())
 
     @status_catcher
-    def on_monitoring_joined(self, event):
+    def on_monitoring_joined(self, _):
+        self._setup_monitoring()
+
+    def _reset_monitoring(self):
+        if not self.unit.is_leader():
+            return
+        if self.model.get_relation("monitoring"):
+            for endpoint in self.prometheus_consumer.endpoints:
+                address, port = endpoint.split(":")
+                self.prometheus_consumer.remove_endpoint(
+                    address=address, port=int(port)
+                )
+            self._setup_monitoring()
+
+    def _setup_monitoring(self):
         # Turn on metrics exporting
         if not self.unit.is_leader():
             return
