@@ -2,7 +2,7 @@
 
 This documents explains the processes and practices recommended for contributing enhancements to the Cassandra charm.
 
-- Generally, before developing enhancements to this charm, you should consider [opening an issue ](https://github.com/canonical/prometheus-operator) explaining your use case.
+- Generally, before developing enhancements to this charm, you should consider [opening an issue ](https://github.com/canonical/cassandra-operator) explaining your use case.
 - If you would like to chat with us about your use-cases or proposed implementation, you can reach us on the [Canonical Mattermost public channel](https://chat.charmhub.io/charmhub/channels/charm-dev) or [Discourse](https://discourse.charmhub.io/).
 - It is strongly recommended that prior to engaging in any enhancements to this charm you familiarise your self with Juju.
 - Familiarising yourself with the [Charmed Operator Framework](https://juju.is/docs/sdk) library will help you a lot when working on PRs.
@@ -41,7 +41,7 @@ $ charmcraft build
 ### Deploy
 
 ```bash
-$ juju deploy ./prometheus-k8s.charm --resource prometheus-image=ubuntu/prometheus:latest
+$ juju deploy ./cassandra-k8s.charm --resource cassandra-image=cassandra:latest
 ```
 
 ## Testing
