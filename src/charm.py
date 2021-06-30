@@ -17,6 +17,8 @@
 import contextlib
 import json
 import logging
+import os
+import sys
 import subprocess
 import yaml
 
@@ -27,6 +29,7 @@ from charms.cassandra_k8s.v0.cassandra import (
     CassandraProvider,
 )
 from charms.prometheus.v1.prometheus import PrometheusConsumer
+from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardConsumer
 
 from cassandra import ConsistencyLevel, InvalidRequest
 from cassandra.auth import PlainTextAuthProvider
@@ -106,6 +109,14 @@ class CassandraOperatorCharm(CharmBase):
             charm=self, name="monitoring", consumes={"Prometheus": ">=2"}
         )
 
+        self.framework.observe(
+            self.on["grafana-dashboard"].relation_joined, self.on_dashboard_joined
+        )
+
+        self.dashboard_consumer = GrafanaDashboardConsumer(
+            charm=self, name="grafana-dashboard", consumes={"Grafana": ">=2.0.0"}
+        )
+
     @status_catcher
     def on_pebble_ready(self, event):
         self._configure(event)
@@ -126,6 +137,13 @@ class CassandraOperatorCharm(CharmBase):
         self.provider.update_address("database", self._bind_address())
 
     @status_catcher
+    def on_dashboard_joined(self, event):
+        if not self.unit.is_leader():
+            return
+        dashboard_tmpl = open(os.path.join(sys.path[0], 'dashboard.json.tmpl'), "r").read()
+        self.dashboard_consumer.add_dashboard(dashboard_tmpl)
+
+    @status_catcher
     def on_monitoring_joined(self, event):
         # Turn on metrics exporting
         if not self.unit.is_leader():
@@ -141,7 +159,7 @@ class CassandraOperatorCharm(CharmBase):
                 )
                 restart(container)
                 self.prometheus_consumer.add_endpoint(
-                    address=self._bind_address(), port=7070
+                    address=self._bind_address(), port=7070, job_name=self.app.name
                 )
 
     @status_catcher
