@@ -8,7 +8,7 @@ Building and Deploying
 
 ```sh
 $ charmcraft build
-$ curl -L https://github.com/instaclustr/cassandra-exporter/releases/download/v0.9.10/cassandra-exporter-agent-0.9.10.jar -o cassandra-exporter-agent.jar
+$ curl -L https://github.com/zegelin/cassandra-exporter/releases/download/v0.9.9/cassandra-exporter-agent-0.9.9.jar -o cassandra-exporter-agent.jar
 $ juju deploy ./cassandra-k8s.charm \
     --resource cassandra-image='cassandra:3.11' \
     --resource cassandra-prometheus-exporter="$(pwd)/cassandra-exporter-agent.jar"
@@ -17,4 +17,6 @@ $ juju deploy ./cassandra-k8s.charm \
 Tests
 =====
 
-    ./run_tests
+```sh
+$ ./run_tests
+```

@@ -260,9 +260,16 @@ import logging
 from ops.framework import EventSource, EventBase, ObjectEvents
 from ops.relation import ProviderBase, ConsumerBase
 
-LIBID = "1234"
-LIBAPI = 1
-LIBPATCH = 0
+# The unique Charmhub library identifier, never change it
+LIBID = "bc84295fef5f4049878f07b131968ee2"
+
+# Increment this major API version when introducing breaking changes
+LIBAPI = 0
+
+# Increment this PATCH version before using `charmcraft publish-lib` or reset
+# to 0 if you are raising the major API version
+LIBPATCH = 1
+
 logger = logging.getLogger(__name__)
 
 
@@ -384,14 +391,19 @@ class PrometheusProvider(ProviderBase):
         if len(relation.units) == 0:
             return []
 
-        scrape_jobs = json.loads(relation.data[relation.app].get("scrape_jobs"))
-
-        if not scrape_jobs:
+        scrape_jobs_raw = relation.data[relation.app].get("scrape_jobs")
+        if not scrape_jobs_raw:
             return []
 
-        scrape_metadata = json.loads(relation.data[relation.app].get("scrape_metadata"))
+        scrape_jobs = json.loads(scrape_jobs_raw)
 
-        job_name_prefix = "juju_{}_{}_{}_prometheus_rel{}_scrape".format(
+        scrape_metadata_raw = relation.data[relation.app].get("scrape_metadata")
+        if not scrape_metadata_raw:
+            return []
+
+        scrape_metadata = json.loads(scrape_metadata_raw)
+
+        job_name_prefix = "juju_{}_{}_{}_prometheus_{}_scrape".format(
             scrape_metadata["model"],
             scrape_metadata["model_uuid"][:7],
             scrape_metadata["application"],
@@ -608,20 +620,20 @@ class PrometheusConsumer(ConsumerBase):
             service: a `CharmEvent` in response to which each unit
                 must advertise its address.
             jobs: an optional list of dictionaries where each
-                dictionary represents the Prometheus scrape configuration
-                for a single job. When not provided, a default scrape
-                configuration is provided for the `/metrics` endpooing and
-                port `80`.
+                dictionary represents the Prometheus scrape
+                configuration for a single job. When not provided, a
+                default scrape configuration is provided for the
+                `/metrics` endpoint pooling using port `80`.
             multi: an optional (default False) flag to indicate if
                 this object must support interaction with multiple
                 Prometheus monitoring service providers.
+
         """
         super().__init__(charm, name, consumes, multi)
 
         self._charm = charm
         self._service_event = service_event
         self._relation_name = name
-
         # Sanitize job configurations to the supported subset of parameters
         self._jobs = [_sanitize_scrape_configuration(job) for job in jobs]
         self._multi_mode = multi

@@ -28,7 +28,7 @@ from charms.cassandra_k8s.v0.cassandra import (
     generate_password,
     CassandraProvider,
 )
-from charms.prometheus.v1.prometheus import PrometheusConsumer
+from charms.prometheus_k8s.v0.prometheus import PrometheusConsumer
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardConsumer
 
 from cassandra import ConsistencyLevel, InvalidRequest
@@ -55,7 +55,7 @@ ROOT_USER = "charm_root"
 CONFIG_PATH = "/etc/cassandra/cassandra.yaml"
 ENV_PATH = "/etc/cassandra/cassandra-env.sh"
 
-PROMETHEUS_EXPORTER_PORT=7070
+PROMETHEUS_EXPORTER_PORT = 9500
 
 
 def restart(container):
@@ -113,7 +113,13 @@ class CassandraOperatorCharm(CharmBase):
             "monitoring",
             {"prometheus": ">=2.0"},
             self.on.cassandra_pebble_ready,
-            jobs=[{"static_configs": [{"targets": ["*:{}".format(PROMETHEUS_EXPORTER_PORT)]}]}],
+            jobs=[
+                {
+                    "static_configs": [
+                        {"targets": ["*:{}".format(PROMETHEUS_EXPORTER_PORT)]}
+                    ]
+                }
+            ],
         )
 
         self.framework.observe(
@@ -158,12 +164,13 @@ class CassandraOperatorCharm(CharmBase):
             container = self.unit.get_container("cassandra")
             cassandra_env = container.pull(ENV_PATH).read()
             if "jmx_prometheus_javaagent" not in cassandra_env:
-                exporter_path = "/opt/prometheus-exporter/prometheus_exporter_javaagent.jar"
+                exporter_path = (
+                    "/opt/cassandra/lib/prometheus_exporter_javaagent.jar"
+                )
 
                 try:
-                    container.pull(exporter_path).read()
+                    container.list_files(exporter_path)
                 except APIError:
-                    # File not found, download resource and add it to the container
                     logger.debug(
                         "Pushing Prometheus exporter to container to {}".format(
                             exporter_path
@@ -171,21 +178,25 @@ class CassandraOperatorCharm(CharmBase):
                     )
 
                     with open(
-                        self.model.resources.fetch("cassandra-prometheus-exporter")
+                        self.model.resources.fetch("cassandra-prometheus-exporter"),
+                        "rb"
                     ) as file:
-                        container.make_dir(os.path.dirname(exporter_path))
-                        container.push(exporter_path, file.read())
+                        container.push(
+                            path=exporter_path,
+                            source=file.read(),
+                            make_dirs=True,
+                            encoding=None,
+                        )
 
-                # TODO Factor out /opt/jmx-exporter/cassandra.yaml as another resource
-                container.push(
-                    ENV_PATH,
-                    cassandra_env
-                    + '\nJVM_OPTS="$JVM_OPTS -javaagent:{}={}}'.format(
-                        exporter_path,
-                        PROMETHEUS_EXPORTER_PORT
-                    ),
-                )
-                restart(container)
+                    container.push(
+                        ENV_PATH,
+                        cassandra_env
+                        + '\nJVM_OPTS="$JVM_OPTS -javaagent:{}'.format(
+                            exporter_path, PROMETHEUS_EXPORTER_PORT
+                        ),
+                    )
+
+                    restart(container)
 
     @status_catcher
     def on_monitoring_broken(self, event):
