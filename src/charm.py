@@ -151,9 +151,6 @@ class CassandraOperatorCharm(CharmBase):
 
     @status_catcher
     def on_monitoring_joined(self, event):
-        # Turn on metrics exporting
-        if not self.unit.is_leader():
-            return
         if len(self.model.relations["monitoring"]) > 0:
             container = self.unit.get_container("cassandra")
             cassandra_env = container.pull(ENV_PATH).read()
