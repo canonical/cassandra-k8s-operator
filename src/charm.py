@@ -17,6 +17,8 @@
 import contextlib
 import json
 import logging
+import os
+import sys
 import subprocess
 import yaml
 
@@ -26,7 +28,8 @@ from charms.cassandra_k8s.v0.cassandra import (
     generate_password,
     CassandraProvider,
 )
-from charms.prometheus.v1.prometheus import PrometheusConsumer
+from charms.prometheus_k8s.v0.prometheus import PrometheusConsumer
+from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardConsumer
 
 from cassandra import ConsistencyLevel, InvalidRequest
 from cassandra.auth import PlainTextAuthProvider
@@ -42,6 +45,7 @@ from cassandra.query import SimpleStatement
 from ops.charm import CharmBase
 from ops.main import main
 from ops.model import ActiveStatus, MaintenanceStatus, ModelError
+from ops.pebble import APIError
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +54,8 @@ CQL_PROTOCOL_VERSION = 4
 ROOT_USER = "charm_root"
 CONFIG_PATH = "/etc/cassandra/cassandra.yaml"
 ENV_PATH = "/etc/cassandra/cassandra-env.sh"
+
+PROMETHEUS_EXPORTER_PORT = 9500
 
 
 def restart(container):
@@ -103,7 +109,25 @@ class CassandraOperatorCharm(CharmBase):
             self.provider.on.data_changed, self.on_provider_data_changed
         )
         self.prometheus_consumer = PrometheusConsumer(
-            charm=self, name="monitoring", consumes={"Prometheus": ">=2"}
+            self,
+            "monitoring",
+            {"prometheus": ">=2.0"},
+            self.on.cassandra_pebble_ready,
+            jobs=[
+                {
+                    "static_configs": [
+                        {"targets": ["*:{}".format(PROMETHEUS_EXPORTER_PORT)]}
+                    ]
+                }
+            ],
+        )
+
+        self.framework.observe(
+            self.on["grafana-dashboard"].relation_joined, self.on_dashboard_joined
+        )
+
+        self.dashboard_consumer = GrafanaDashboardConsumer(
+            charm=self, name="grafana-dashboard", consumes={"Grafana": ">=2.0.0"}
         )
 
     @status_catcher
@@ -128,37 +152,53 @@ class CassandraOperatorCharm(CharmBase):
         self.provider.update_address("database", self._bind_address())
 
     @status_catcher
-    def on_monitoring_joined(self, _):
-        self._setup_monitoring()
-
-    def _reset_monitoring(self):
+    def on_dashboard_joined(self, event):
         if not self.unit.is_leader():
             return
-        if self.model.get_relation("monitoring"):
-            for endpoint in self.prometheus_consumer.endpoints:
-                address, port = endpoint.split(":")
-                self.prometheus_consumer.remove_endpoint(
-                    address=address, port=int(port)
-                )
-            self._setup_monitoring()
+        dashboard_tmpl = open(
+            os.path.join(sys.path[0], "dashboard.json.tmpl"), "r"
+        ).read()
+        self.dashboard_consumer.add_dashboard(dashboard_tmpl)
 
-    def _setup_monitoring(self):
-        # Turn on metrics exporting
-        if not self.unit.is_leader():
-            return
+    @status_catcher
+    def on_monitoring_joined(self, event):
         if len(self.model.relations["monitoring"]) > 0:
             container = self.unit.get_container("cassandra")
             cassandra_env = container.pull(ENV_PATH).read()
             if "jmx_prometheus_javaagent" not in cassandra_env:
-                container.push(
-                    ENV_PATH,
-                    cassandra_env
-                    + '\nJVM_OPTS="$JVM_OPTS -javaagent:/opt/jmx-exporter/jmx_prometheus_javaagent-0.15.0.jar=7070:/opt/jmx-exporter/cassandra.yaml"',
+                exporter_path = (
+                    "/opt/cassandra/lib/prometheus_exporter_javaagent.jar"
                 )
-                restart(container)
-                self.prometheus_consumer.add_endpoint(
-                    address=self._bind_address(), port=7070
-                )
+
+                try:
+                    container.list_files(exporter_path)
+                except APIError:
+                    logger.debug(
+                        "Pushing Prometheus exporter to container to {}".format(
+                            exporter_path
+                        )
+                    )
+
+                    with open(
+                        self.model.resources.fetch("cassandra-prometheus-exporter"),
+                        "rb"
+                    ) as file:
+                        container.push(
+                            path=exporter_path,
+                            source=file.read(),
+                            make_dirs=True,
+                            encoding=None,
+                        )
+
+                    container.push(
+                        ENV_PATH,
+                        cassandra_env
+                        + '\nJVM_OPTS="$JVM_OPTS -javaagent:{}'.format(
+                            exporter_path, PROMETHEUS_EXPORTER_PORT
+                        ),
+                    )
+
+                    restart(container)
 
     @status_catcher
     def on_monitoring_broken(self, event):

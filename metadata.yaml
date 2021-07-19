@@ -27,15 +27,21 @@ resources:
   cassandra-image:
     type: oci-image
     description: OCI image for Cassandra
+  cassandra-prometheus-exporter:
+    type: file
+    filename: prometheus_exporter_javaagent.jar
+    description: Jar file for the Prometheus exporter for cassandra
 provides:
   database:
     interface: cassandra
 requires:
   monitoring:
     interface: prometheus_scrape
+  grafana-dashboard:
+    interface: grafana_dashboard
 peers:
   cassandra-peers:
-    interface: cassandra-peers
+    interface: cassandra_peers
 storage:
   data:
     type: filesystem
