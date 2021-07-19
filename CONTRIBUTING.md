@@ -6,8 +6,13 @@ All bugs and pull requests should be submitted to the [github repo](https://gith
 Building and Deploying
 ======================
 
-    charmcraft build
-    juju deploy ./cassandra-k8s.charm --resource cassandra-image='dstathis/cassandra-operator-image:latest'
+```sh
+$ charmcraft build
+$ curl -L https://github.com/instaclustr/cassandra-exporter/releases/download/v0.9.10/cassandra-exporter-agent-0.9.10.jar -o cassandra-exporter-agent.jar
+$ juju deploy ./cassandra-k8s.charm \
+    --resource cassandra-image='cassandra:3.11' \
+    --resource cassandra-prometheus-exporter="$(pwd)/cassandra-exporter-agent.jar"
+```
 
 Tests
 =====

@@ -27,6 +27,10 @@ resources:
   cassandra-image:
     type: oci-image
     description: OCI image for Cassandra
+  cassandra-prometheus-exporter:
+    type: file
+    filename: prometheus_exporter_javaagent.jar
+    description: Jar file for the Prometheus exporter for cassandra
 provides:
   database:
     interface: cassandra

@@ -45,6 +45,7 @@ from cassandra.query import SimpleStatement
 from ops.charm import CharmBase
 from ops.main import main
 from ops.model import ActiveStatus, MaintenanceStatus, ModelError
+from ops.pebble import APIError
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +54,8 @@ CQL_PROTOCOL_VERSION = 4
 ROOT_USER = "charm_root"
 CONFIG_PATH = "/etc/cassandra/cassandra.yaml"
 ENV_PATH = "/etc/cassandra/cassandra-env.sh"
+
+PROMETHEUS_EXPORTER_PORT=7070
 
 
 def restart(container):
@@ -110,7 +113,7 @@ class CassandraOperatorCharm(CharmBase):
             "monitoring",
             {"prometheus": ">=2.0"},
             self.on.cassandra_pebble_ready,
-            jobs=[{"static_configs": [{"targets": ["*:7070"]}]}],
+            jobs=[{"static_configs": [{"targets": ["*:{}".format(PROMETHEUS_EXPORTER_PORT)]}]}],
         )
 
         self.framework.observe(
@@ -155,10 +158,32 @@ class CassandraOperatorCharm(CharmBase):
             container = self.unit.get_container("cassandra")
             cassandra_env = container.pull(ENV_PATH).read()
             if "jmx_prometheus_javaagent" not in cassandra_env:
+                exporter_path = "/opt/prometheus-exporter/prometheus_exporter_javaagent.jar"
+
+                try:
+                    container.pull(exporter_path).read()
+                except APIError:
+                    # File not found, download resource and add it to the container
+                    logger.debug(
+                        "Pushing Prometheus exporter to container to {}".format(
+                            exporter_path
+                        )
+                    )
+
+                    with open(
+                        self.model.resources.fetch("cassandra-prometheus-exporter")
+                    ) as file:
+                        container.make_dir(os.path.dirname(exporter_path))
+                        container.push(exporter_path, file.read())
+
+                # TODO Factor out /opt/jmx-exporter/cassandra.yaml as another resource
                 container.push(
                     ENV_PATH,
                     cassandra_env
-                    + '\nJVM_OPTS="$JVM_OPTS -javaagent:/opt/jmx-exporter/jmx_prometheus_javaagent-0.15.0.jar=7070:/opt/jmx-exporter/cassandra.yaml"',
+                    + '\nJVM_OPTS="$JVM_OPTS -javaagent:{}={}}'.format(
+                        exporter_path,
+                        PROMETHEUS_EXPORTER_PORT
+                    ),
                 )
                 restart(container)
 
