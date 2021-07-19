@@ -282,6 +282,7 @@ class GrafanaSourceConsumer(ConsumerBase):
         logger.info("Updating source data to {}".format(data))
         rel.data[self.charm.app]["sources"] = json.dumps(data)
 
+
 class GrafanaSourceProvider(ProviderBase):
     on = GrafanaSourceEvents()
     _stored = StoredState()
