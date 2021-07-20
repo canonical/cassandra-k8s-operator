@@ -6148,7 +6148,7 @@
         "multi": false,
         "name": "instance",
         "options": [],
-        "query": "label_values(up{job=~\"{{ prometheus_job }}_.*\"}, instance)",
+        "query": "label_values(up{ {{ prometheus_query }} }, instance)",
         "refresh": 1,
         "regex": "",
         "sort": 1,

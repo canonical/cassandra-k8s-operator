@@ -1,14 +1,13 @@
 import base64
 import json
-import jsonpickle
 import logging
 import zlib
 
 from jinja2 import Template
 
-from ops.charm import CharmBase, CharmEvents, RelationChangedEvent
+from ops.charm import CharmBase, CharmEvents, RelationBrokenEvent, RelationChangedEvent, RelationDepartedEvent
 from ops.model import Unit
-from ops.framework import EventBase, EventSource, StoredState
+from ops.framework import EventBase, EventSource, ObjectEvents, StoredState
 from ops.relation import ConsumerBase, ProviderBase
 
 from typing import Dict, List
@@ -96,26 +95,39 @@ class GrafanaDashboardConsumer(ConsumerBase):
         prom_rel = self.framework.model.get_relation("monitoring")
         prom_unit = prom_rel.units.pop()
 
-        prom_target = json.loads(prom_rel.data[self.charm.app]["job_name"])
-        prom_job = "{}_juju_{}_{}_{}".format(
-            prom_target,
-            self.charm.model.name,
-            prom_unit.app.name,
-            prom_rel.id
-        )
+        self._update_dashboards(data, rel_id, prom_unit)
 
-        self._update_dashboards(data, rel_id, prom_unit, prom_target, prom_job)
-
-    def _update_dashboards(self, data: str, rel_id: int, prom_unit: Unit, prom_job: str, prom_target: str) -> None:
+    def _update_dashboards(self, data: str, rel_id: int, prom_unit: Unit) -> None:
         """
         Update the dashboards in the relation data bucket
         """
+        if not self.charm.unit.is_leader():
+            return
+
+        prom_identifier = "{}_{}_{}".format(
+            prom_unit._backend.model_name,
+            prom_unit._backend.model_uuid,
+            prom_unit.app.name
+        )
+
+        prom_target = "{}_{}_{}".format(
+            self.charm.app.name,
+            self.charm.model.name,
+            self.charm.model.uuid
+        )
+
+        prom_query = "juju_model='{}',juju_model_uuid='{}',juju_application='{}'".format(
+            self.charm.model.name,
+            self.charm.model.uuid,
+            self.charm.app.name
+        )
+
         stored_data = {
-            "monitoring": jsonpickle.encode(prom_unit),
+            "monitoring_identifier": prom_identifier,
             "monitoring_target": prom_target,
-            "monitoring_job": prom_job,
-            "rel_id": rel_id,
-            "template": base64.b64encode(zlib.compress(data.encode(), 9)).decode()
+            "monitoring_query": prom_query,
+            "template": base64.b64encode(zlib.compress(data.encode(), 9)).decode(),
+            "removed": False,
         }
         rel = self.framework.model.get_relation(self.name, rel_id)
 
@@ -123,6 +135,24 @@ class GrafanaDashboardConsumer(ConsumerBase):
         rel.data[self.charm.app]["dashboards"] = json.dumps(
             stored_data
         )
+
+    def remove_dashboard(self, rel_id=None) -> None:
+        if not self.charm.unit.is_leader():
+            return
+
+        if rel_id is None:
+            rel_id = self.relation_id
+
+        rel = self.framework.model.get_relation(self.name, rel_id)
+
+        dash = self._stored.dashboards[rel_id].pop()
+        dash["removed"] = True
+
+        rel.data[self.charm.app]["dashboards"] = json.dumps(dash)
+
+    @property
+    def dashboards(self) -> List:
+        return [v for v in self._stored.dashboards.values()]
 
 
 class GrafanaDashboardProvider(ProviderBase):
@@ -151,12 +181,16 @@ class GrafanaDashboardProvider(ProviderBase):
         events = self.charm.on[name]
 
         self._stored.set_default(dashboards=dict())
+        self._stored.set_default(deleted_dashboards=[])
 
         self.framework.observe(
-            events.relation_changed, self.on_grafana_dashboard_relation_changed
+            events.relation_changed, self._on_grafana_dashboard_relation_changed
+        )
+        self.framework.observe(
+            events.relation_broken, self._on_grafana_dashboard_relation_broken
         )
 
-    def on_grafana_dashboard_relation_changed(self, event: RelationChangedEvent) -> None:
+    def _on_grafana_dashboard_relation_changed(self, event: RelationChangedEvent) -> None:
         """Handle relation changes in related consumers.
 
         If there are changes in relations between Grafana dashboard providers
@@ -180,25 +214,14 @@ class GrafanaDashboardProvider(ProviderBase):
             logger.info("NO DATA")
             return
 
-        # Not all operator framework objects can be encoded to JSON or rpicled normally
-        # but unpickle it and try to find a matching application to ghe one on the other side
-        # of the dashboards so we know we have the right datasource
-        source_prom_rel = jsonpickle.decode(data["monitoring"])
-        our_prom_rel = self.charm.framework.model.get_relation('grafana-source')
-
-        source = None
-        for p in our_prom_rel.units:
-            if source_prom_rel.app.name == p.app.name:
-                source = p
-                break
-
-        if source is None:
-            logger.error("No matching Prometheus relation for dashboard source")
+        # Pop it out of the list of dashboards if a relation is broken externally
+        if data.get("removed", False):
+            del self._stored.dashboards[rel.id]
             return
 
         grafana_datasource = "{}".format(
-            [x["source-name"] for x in self.charm.source_provider.sources if source.app.name in x["source-name"]][0]
-        )
+            [x["source-name"] for x in self.charm.source_provider.sources
+             if data["monitoring_identifier"] in x["source-name"]][0])
 
         # The dashboards are WAY too big since this ultimately calls out to Juju to set the relation data,
         # and it overflows the maximum argument length for subprocess, so we have to use b64, annoyingly.
@@ -209,13 +232,30 @@ class GrafanaDashboardProvider(ProviderBase):
         tm = Template(zlib.decompress(base64.b64decode(data["template"].encode())).decode())
         msg = tm.render(grafana_datasource=grafana_datasource,
                         prometheus_target=data["monitoring_target"],
-                        prometheus_job=data["monitoring_job"])
+                        prometheus_query=data["monitoring_query"])
 
-        msg = base64.b64encode(zlib.compress(msg.encode(), 9)).decode()
+        msg = {"target": data["monitoring_target"],
+               "dashboard": base64.b64encode(zlib.compress(msg.encode(), 9)).decode()}
 
-        if not json.dumps(self._stored.dashboards.get(rel.id, "")) == json.dumps(msg):
+        if not json.dumps(dict(self._stored.dashboards.get(rel.id, ""))) == json.dumps(msg):
             self._stored.dashboards[rel.id] = msg
             self.on.dashboards_changed.emit()
+
+    def _on_grafana_dashboard_relation_broken(self, event: RelationBrokenEvent) -> None:
+        """Update job config when consumers depart.
+
+        When a Grafana dashboard consumer departs, the configuration
+        for that consumer is removed from the list of dashboards
+        """
+        if not self.charm.unit.is_leader():
+            return
+
+        rel_id = event.relation.id
+        try:
+            self._stored.dashboards.pop(rel_id, None)
+            self.on.dashboards_changed.emit()
+        except KeyError:
+            logger.warning("Could not remove dashboard for relation: {}".format(rel_id))
 
     @property
     def dashboards(self) -> List:

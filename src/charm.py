@@ -106,7 +106,17 @@ class CassandraOperatorCharm(CharmBase):
             self.provider.on.data_changed, self.on_provider_data_changed
         )
         self.prometheus_consumer = PrometheusConsumer(
-            charm=self, name="monitoring", consumes={"Prometheus": ">=2"}
+            charm=self, name="monitoring", consumes={"Prometheus": ">=2"},
+            service_event=self.on.cassandra_pebble_ready,
+            jobs=[
+                {
+                    "static_configs": [
+                        {
+                            "targets": ["*:7070"]
+                        }
+                    ]
+                }
+            ]
         )
 
         self.framework.observe(
@@ -116,6 +126,8 @@ class CassandraOperatorCharm(CharmBase):
         self.dashboard_consumer = GrafanaDashboardConsumer(
             charm=self, name="grafana-dashboard", consumes={"Grafana": ">=2.0.0"}
         )
+
+        self.dashboard_sent = False
 
     @status_catcher
     def on_pebble_ready(self, event):
@@ -158,9 +170,8 @@ class CassandraOperatorCharm(CharmBase):
                     + '\nJVM_OPTS="$JVM_OPTS -javaagent:/opt/jmx-exporter/jmx_prometheus_javaagent-0.15.0.jar=7070:/opt/jmx-exporter/cassandra.yaml"',
                 )
                 restart(container)
-                self.prometheus_consumer.add_endpoint(
-                    address=self._bind_address(), port=7070, job_name=self.app.name
-                )
+            if self.dashboard_sent and len(self.model.relations["grafana-dashboard"]) > 0:
+                self.on_dashboard_joined(event)
 
     @status_catcher
     def on_monitoring_broken(self, event):
@@ -176,6 +187,8 @@ class CassandraOperatorCharm(CharmBase):
                     container.push(ENV_PATH, "\n".join(cassandra_env))
                     restart(container)
                     break
+            if self.dashboard_sent and len(self.model.relations["grafana-dashboard"]) > 0:
+                self.dashboard_consumer.remove_dashboard()
 
     @status_catcher
     def on_cassandra_peers_changed(self, event):
