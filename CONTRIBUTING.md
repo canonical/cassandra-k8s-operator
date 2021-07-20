@@ -9,7 +9,7 @@ Building and Deploying
 ```sh
 $ charmcraft build
 $ curl -L https://github.com/zegelin/cassandra-exporter/releases/download/v0.9.9/cassandra-exporter-agent-0.9.9.jar -o cassandra-exporter-agent.jar
-$ juju deploy ./cassandra-k8s.charm \
+$ juju deploy ./cassandra-k8s_ubuntu-20.04-amd64.charm \
     --resource cassandra-image='cassandra:3.11' \
     --resource cassandra-prometheus-exporter="$(pwd)/cassandra-exporter-agent.jar"
 ```
