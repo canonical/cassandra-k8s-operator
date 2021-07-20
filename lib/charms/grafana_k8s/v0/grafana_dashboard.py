@@ -116,8 +116,8 @@ class GrafanaDashboardConsumer(ConsumerBase):
             prom_unit.app.name,
         )
 
-        prom_target = "{}_{}_{}".format(
-            self.charm.app.name, self.charm.model.name, self.charm.model.uuid
+        prom_target = "{} [ {} / {}]".format(
+            self.charm.app.name.capitalize(), self.charm.model.name, self.charm.model.uuid
         )
 
         prom_query = (
