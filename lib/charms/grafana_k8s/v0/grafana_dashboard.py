@@ -5,7 +5,13 @@ import zlib
 
 from jinja2 import Template
 
-from ops.charm import CharmBase, CharmEvents, RelationBrokenEvent, RelationChangedEvent, RelationDepartedEvent
+from ops.charm import (
+    CharmBase,
+    CharmEvents,
+    RelationBrokenEvent,
+    RelationChangedEvent,
+    RelationDepartedEvent,
+)
 from ops.model import Unit
 from ops.framework import EventBase, EventSource, ObjectEvents, StoredState
 from ops.relation import ConsumerBase, ProviderBase
@@ -107,19 +113,17 @@ class GrafanaDashboardConsumer(ConsumerBase):
         prom_identifier = "{}_{}_{}".format(
             prom_unit._backend.model_name,
             prom_unit._backend.model_uuid,
-            prom_unit.app.name
+            prom_unit.app.name,
         )
 
         prom_target = "{}_{}_{}".format(
-            self.charm.app.name,
-            self.charm.model.name,
-            self.charm.model.uuid
+            self.charm.app.name, self.charm.model.name, self.charm.model.uuid
         )
 
-        prom_query = "juju_model='{}',juju_model_uuid='{}',juju_application='{}'".format(
-            self.charm.model.name,
-            self.charm.model.uuid,
-            self.charm.app.name
+        prom_query = (
+            "juju_model='{}',juju_model_uuid='{}',juju_application='{}'".format(
+                self.charm.model.name, self.charm.model.uuid, self.charm.app.name
+            )
         )
 
         stored_data = {
@@ -132,9 +136,7 @@ class GrafanaDashboardConsumer(ConsumerBase):
         rel = self.framework.model.get_relation(self.name, rel_id)
 
         self._stored.dashboards[rel_id] = stored_data
-        rel.data[self.charm.app]["dashboards"] = json.dumps(
-            stored_data
-        )
+        rel.data[self.charm.app]["dashboards"] = json.dumps(stored_data)
 
     def remove_dashboard(self, rel_id=None) -> None:
         if not self.charm.unit.is_leader():
@@ -190,7 +192,9 @@ class GrafanaDashboardProvider(ProviderBase):
             events.relation_broken, self._on_grafana_dashboard_relation_broken
         )
 
-    def _on_grafana_dashboard_relation_changed(self, event: RelationChangedEvent) -> None:
+    def _on_grafana_dashboard_relation_changed(
+        self, event: RelationChangedEvent
+    ) -> None:
         """Handle relation changes in related consumers.
 
         If there are changes in relations between Grafana dashboard providers
@@ -220,8 +224,12 @@ class GrafanaDashboardProvider(ProviderBase):
             return
 
         grafana_datasource = "{}".format(
-            [x["source-name"] for x in self.charm.source_provider.sources
-             if data["monitoring_identifier"] in x["source-name"]][0])
+            [
+                x["source-name"]
+                for x in self.charm.source_provider.sources
+                if data["monitoring_identifier"] in x["source-name"]
+            ][0]
+        )
 
         # The dashboards are WAY too big since this ultimately calls out to Juju to set the relation data,
         # and it overflows the maximum argument length for subprocess, so we have to use b64, annoyingly.
@@ -229,15 +237,23 @@ class GrafanaDashboardProvider(ProviderBase):
         # Worse, Python3 expects absolutely everything to be a byte, and a plain `base64.b64encode()` is still
         # too large, so we have to go through hoops of encoding to byte, compressing with zlib, converting
         # to base64 so it can be converted to JSON, then all the way back
-        tm = Template(zlib.decompress(base64.b64decode(data["template"].encode())).decode())
-        msg = tm.render(grafana_datasource=grafana_datasource,
-                        prometheus_target=data["monitoring_target"],
-                        prometheus_query=data["monitoring_query"])
+        tm = Template(
+            zlib.decompress(base64.b64decode(data["template"].encode())).decode()
+        )
+        msg = tm.render(
+            grafana_datasource=grafana_datasource,
+            prometheus_target=data["monitoring_target"],
+            prometheus_query=data["monitoring_query"],
+        )
 
-        msg = {"target": data["monitoring_target"],
-               "dashboard": base64.b64encode(zlib.compress(msg.encode(), 9)).decode()}
+        msg = {
+            "target": data["monitoring_target"],
+            "dashboard": base64.b64encode(zlib.compress(msg.encode(), 9)).decode(),
+        }
 
-        if not json.dumps(dict(self._stored.dashboards.get(rel.id, ""))) == json.dumps(msg):
+        if not json.dumps(dict(self._stored.dashboards.get(rel.id, ""))) == json.dumps(
+            msg
+        ):
             self._stored.dashboards[rel.id] = msg
             self.on.dashboards_changed.emit()
 

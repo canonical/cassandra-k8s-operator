@@ -106,17 +106,11 @@ class CassandraOperatorCharm(CharmBase):
             self.provider.on.data_changed, self.on_provider_data_changed
         )
         self.prometheus_consumer = PrometheusConsumer(
-            charm=self, name="monitoring", consumes={"Prometheus": ">=2"},
+            charm=self,
+            name="monitoring",
+            consumes={"Prometheus": ">=2"},
             service_event=self.on.cassandra_pebble_ready,
-            jobs=[
-                {
-                    "static_configs": [
-                        {
-                            "targets": ["*:7070"]
-                        }
-                    ]
-                }
-            ]
+            jobs=[{"static_configs": [{"targets": ["*:7070"]}]}],
         )
 
         self.framework.observe(
@@ -152,7 +146,9 @@ class CassandraOperatorCharm(CharmBase):
     def on_dashboard_joined(self, event):
         if not self.unit.is_leader():
             return
-        dashboard_tmpl = open(os.path.join(sys.path[0], 'dashboard.json.tmpl'), "r").read()
+        dashboard_tmpl = open(
+            os.path.join(sys.path[0], "dashboard.json.tmpl"), "r"
+        ).read()
         self.dashboard_consumer.add_dashboard(dashboard_tmpl)
 
     @status_catcher
@@ -170,7 +166,10 @@ class CassandraOperatorCharm(CharmBase):
                     + '\nJVM_OPTS="$JVM_OPTS -javaagent:/opt/jmx-exporter/jmx_prometheus_javaagent-0.15.0.jar=7070:/opt/jmx-exporter/cassandra.yaml"',
                 )
                 restart(container)
-            if self.dashboard_sent and len(self.model.relations["grafana-dashboard"]) > 0:
+            if (
+                self.dashboard_sent
+                and len(self.model.relations["grafana-dashboard"]) > 0
+            ):
                 self.on_dashboard_joined(event)
 
     @status_catcher
@@ -187,7 +186,10 @@ class CassandraOperatorCharm(CharmBase):
                     container.push(ENV_PATH, "\n".join(cassandra_env))
                     restart(container)
                     break
-            if self.dashboard_sent and len(self.model.relations["grafana-dashboard"]) > 0:
+            if (
+                self.dashboard_sent
+                and len(self.model.relations["grafana-dashboard"]) > 0
+            ):
                 self.dashboard_consumer.remove_dashboard()
 
     @status_catcher
