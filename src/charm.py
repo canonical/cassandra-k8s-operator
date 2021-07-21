@@ -166,11 +166,12 @@ class CassandraOperatorCharm(CharmBase):
                     + '\nJVM_OPTS="$JVM_OPTS -javaagent:/opt/jmx-exporter/jmx_prometheus_javaagent-0.15.0.jar=7070:/opt/jmx-exporter/cassandra.yaml"',
                 )
                 restart(container)
-            if (
-                self.dashboard_sent
-                and len(self.model.relations["grafana-dashboard"]) > 0
-            ):
-                self.on_dashboard_joined(event)
+            if self.unit.is_leader():
+                if (
+                    self.dashboard_sent
+                    and len(self.model.relations["grafana-dashboard"]) > 0
+                ):
+                    self.on_dashboard_joined(event)
 
     @status_catcher
     def on_monitoring_broken(self, event):
@@ -186,11 +187,12 @@ class CassandraOperatorCharm(CharmBase):
                     container.push(ENV_PATH, "\n".join(cassandra_env))
                     restart(container)
                     break
-            if (
-                self.dashboard_sent
-                and len(self.model.relations["grafana-dashboard"]) > 0
-            ):
-                self.dashboard_consumer.remove_dashboard()
+            if self.unit.is_leader():
+                if (
+                    self.dashboard_sent
+                    and len(self.model.relations["grafana-dashboard"]) > 0
+                ):
+                    self.dashboard_consumer.remove_dashboard()
 
     @status_catcher
     def on_cassandra_peers_changed(self, event):

@@ -247,7 +247,7 @@ class GrafanaDashboardProvider(ProviderBase):
         )
 
         msg = {
-            "target": data["monitoring_target"],
+            "target": data["monitoring_identifier"],
             "dashboard": base64.b64encode(zlib.compress(msg.encode(), 9)).decode(),
         }
 
