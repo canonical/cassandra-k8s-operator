@@ -136,7 +136,6 @@ class CassandraOperatorCharm(CharmBase):
         container = event.workload
         make_started(container)
         self.provider.update_address("database", self._bind_address())
-        self._reset_monitoring()
 
     @status_catcher
     def on_config_changed(self, event):
@@ -145,7 +144,6 @@ class CassandraOperatorCharm(CharmBase):
 
     def on_leader_elected(self, event):
         self.provider.update_address("database", self._bind_address())
-        self._reset_monitoring()
 
     def on_database_joined(self, event):
         self.provider.update_port("database", self.model.config["port"])
@@ -182,18 +180,17 @@ class CassandraOperatorCharm(CharmBase):
                     with open(
                         self.model.resources.fetch("cassandra-prometheus-exporter"),
                         "rb"
-                    ) as file:
+                    ) as f:
                         container.push(
                             path=exporter_path,
-                            source=file.read(),
+                            source=f,
                             make_dirs=True,
-                            encoding=None,
                         )
 
                     container.push(
                         ENV_PATH,
                         cassandra_env
-                        + '\nJVM_OPTS="$JVM_OPTS -javaagent:{}'.format(
+                        + '\nJVM_OPTS="$JVM_OPTS -javaagent:{}"'.format(
                             exporter_path, PROMETHEUS_EXPORTER_PORT
                         ),
                     )
@@ -202,8 +199,6 @@ class CassandraOperatorCharm(CharmBase):
 
     @status_catcher
     def on_monitoring_broken(self, event):
-        if not self.unit.is_leader():
-            return
         # If there are no monitoring relations, disable metrics
         if len(self.model.relations["monitoring"]) == 0:
             container = self.unit.get_container("cassandra")
