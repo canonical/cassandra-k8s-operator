@@ -153,9 +153,10 @@ class CassandraOperatorCharm(CharmBase):
 
     @status_catcher
     def on_monitoring_joined(self, event):
-        # Turn on metrics exporting
-        if not self.unit.is_leader():
-            return
+        # Turn on metrics exporting. This should be on on ALL NODES, since it does not
+        # export per node cluster metrics with the default JMX exporter
+        # if not self.unit.is_leader():
+        #     return
         if len(self.model.relations["monitoring"]) > 0:
             container = self.unit.get_container("cassandra")
             cassandra_env = container.pull(ENV_PATH).read()
@@ -168,15 +169,13 @@ class CassandraOperatorCharm(CharmBase):
                 restart(container)
             if self.unit.is_leader():
                 if (
-                    self.dashboard_sent
+                    not self.dashboard_sent
                     and len(self.model.relations["grafana-dashboard"]) > 0
                 ):
                     self.on_dashboard_joined(event)
 
     @status_catcher
     def on_monitoring_broken(self, event):
-        if not self.unit.is_leader():
-            return
         # If there are no monitoring relations, disable metrics
         if len(self.model.relations["monitoring"]) == 0:
             container = self.unit.get_container("cassandra")
