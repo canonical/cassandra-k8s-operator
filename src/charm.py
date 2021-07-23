@@ -198,8 +198,8 @@ class CassandraOperatorCharm(CharmBase):
             self.unit.status = BlockedStatus(event.error_message)
 
     @status_catcher
-    def on_monitoring_joined(self, _):
-        self._setup_monitoring()
+    def on_monitoring_joined(self, event):
+        self._setup_monitoring(event)
 
     def _reset_monitoring(self):
         if not self.unit.is_leader():
