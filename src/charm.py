@@ -44,7 +44,7 @@ from cassandra.query import SimpleStatement
 
 from ops.charm import CharmBase
 from ops.main import main
-from ops.model import ActiveStatus, MaintenanceStatus, ModelError
+from ops.model import ActiveStatus, BlockedStatus, MaintenanceStatus, ModelError
 
 logger = logging.getLogger(__name__)
 
@@ -114,14 +114,22 @@ class CassandraOperatorCharm(CharmBase):
         )
 
         self.framework.observe(
-            self.on["grafana-dashboard"].relation_joined, self.on_dashboard_joined
+            self.on["grafana-dashboard"].relation_joined, self._on_dashboard_joined
+        )
+        self.framework.observe(
+            self.on["grafana-dashboard"].relation_broken, self._on_dashboard_broken
         )
 
         self.dashboard_consumer = GrafanaDashboardConsumer(
             charm=self, name="grafana-dashboard", consumes={"Grafana": ">=2.0.0"}
         )
+        self.framework.observe(
+            self.dashboard_consumer.on.dashboard_status_changed,
+            self._on_dashboard_status_changed,
+        )
 
-        self.dashboard_sent = False
+        self._dashboard_valid = False
+        self._defer_dashboard_send = False
 
     @status_catcher
     def on_pebble_ready(self, event):
@@ -142,14 +150,50 @@ class CassandraOperatorCharm(CharmBase):
         self.provider.update_port("database", self.model.config["port"])
         self.provider.update_address("database", self._bind_address())
 
-    @status_catcher
-    def on_dashboard_joined(self, event):
+    def _on_dashboard_joined(self, event):
         if not self.unit.is_leader():
             return
+
+        if (
+            isinstance(self.unit.status, BlockedStatus)
+            and "dashboard" in self.unit.status.message
+        ):
+            self.unit.status = ActiveStatus()
+
+        self._send_dashboard(event)
+
+    def _send_dashboard(self, event):
+        # Thanks to Juju's event resolution mechanics, calling this again
+        # when monitoring is joined will cause the check for the number
+        # of Prometheus units in the dashboard consumer library to raise
+        # an IndexError, since it hasn't finished yet. Delay...
+        if self._defer_dashboard_send:
+            self._defer_dashboard_send = False
+            event.defer()
+            return
+
         dashboard_tmpl = open(
             os.path.join(sys.path[0], "dashboard.json.tmpl"), "r"
         ).read()
+
+        self._dashboard_valid = True
         self.dashboard_consumer.add_dashboard(dashboard_tmpl)
+
+    def _on_dashboard_broken(self, event):
+        self._dashboard_valid = False
+        if (
+            isinstance(self.unit.status, BlockedStatus)
+            and "dashboard" in self.unit.status.message
+        ):
+            self.unit.status = ActiveStatus()
+
+    def _on_dashboard_status_changed(self, event):
+        if event.valid:
+            self._dashboard_valid = True
+            self.unit.status = ActiveStatus()
+        elif event.error_message:
+            self._dashboard_valid = False
+            self.unit.status = BlockedStatus(event.error_message)
 
     @status_catcher
     def on_monitoring_joined(self, event):
@@ -157,6 +201,7 @@ class CassandraOperatorCharm(CharmBase):
         # export per node cluster metrics with the default JMX exporter
         # if not self.unit.is_leader():
         #     return
+
         if len(self.model.relations["monitoring"]) > 0:
             container = self.unit.get_container("cassandra")
             cassandra_env = container.pull(ENV_PATH).read()
@@ -168,16 +213,21 @@ class CassandraOperatorCharm(CharmBase):
                 )
                 restart(container)
             if self.unit.is_leader():
+
                 if (
-                    not self.dashboard_sent
+                    not self._dashboard_valid
                     and len(self.model.relations["grafana-dashboard"]) > 0
                 ):
-                    self.on_dashboard_joined(event)
+                    if len(self.model.get_relation("monitoring").units) == 0:
+                        self._defer_dashboard_send = True
+                    else:
+                        self._defer_dashboard_send = False
+                    self._send_dashboard(event)
 
     @status_catcher
     def on_monitoring_broken(self, event):
         # If there are no monitoring relations, disable metrics
-        if len(self.model.relations["monitoring"]) == 0:
+        if len(self.model.get_relation("monitoring").units) == 0:
             container = self.unit.get_container("cassandra")
             cassandra_env = container.pull(ENV_PATH).readlines()
             for line in cassandra_env:
@@ -187,11 +237,11 @@ class CassandraOperatorCharm(CharmBase):
                     restart(container)
                     break
             if self.unit.is_leader():
-                if (
-                    self.dashboard_sent
-                    and len(self.model.relations["grafana-dashboard"]) > 0
-                ):
-                    self.dashboard_consumer.remove_dashboard()
+                if len(self.model.relations["grafana-dashboard"]) > 0:
+                    self._dashboard_valid = False
+                    self.dashboard_consumer.invalidate_dashboard(
+                        "Waiting for a prometheus_scrape relation to send dashboard data"
+                    )
 
     @status_catcher
     def on_cassandra_peers_changed(self, event):
