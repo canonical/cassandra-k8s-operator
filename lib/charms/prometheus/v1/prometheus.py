@@ -268,7 +268,7 @@ LIBAPI = 0
 
 # Increment this PATCH version before using `charmcraft publish-lib` or reset
 # to 0 if you are raising the major API version
-LIBPATCH = 1
+LIBPATCH = 2
 
 logger = logging.getLogger(__name__)
 
@@ -276,8 +276,8 @@ logger = logging.getLogger(__name__)
 def _sanitize_scrape_configuration(job):
     return {
         "job_name": job.get("job_name"),
-        "metrics_path": job.get("metrics_path"),
-        "static_configs": job.get("static_configs"),
+        "metrics_path": job.get("metrics_path", "/metrics"),
+        "static_configs": job.get("static_configs", [{"targets": ["*:80"]}]),
     }
 
 
@@ -398,11 +398,10 @@ class PrometheusProvider(ProviderBase):
 
         scrape_metadata = json.loads(relation.data[relation.app].get("scrape_metadata"))
 
-        job_name_prefix = "juju_{}_{}_{}_prometheus_{}_scrape".format(
+        job_name_prefix = "juju_{}_{}_{}_prometheus_scrape".format(
             scrape_metadata["model"],
             scrape_metadata["model_uuid"][:7],
             scrape_metadata["application"],
-            relation.id,
         )
 
         hosts = self._relation_hosts(relation)
@@ -463,12 +462,19 @@ class PrometheusProvider(ProviderBase):
             for a single job.
         """
         name = job.get("job_name")
-        job_name = "job_name_prefix_{}".format(name) if name else job_name_prefix
+        job_name = "{}_{}".format(job_name_prefix, name) if name else job_name_prefix
 
-        config = {"job_name": job_name}
+        config = {"job_name": job_name, "metrics_path": job["metrics_path"]}
 
         static_configs = job.get("static_configs")
         config["static_configs"] = []
+
+        relabel_config = {
+            "source_labels": ["juju_model", "juju_model_uuid", "juju_application"],
+            "separator": "_",
+            "target_label": "instance",
+            "regex": "(.*)",
+        }
 
         for static_config in static_configs:
             labels = static_config.get("labels", {}) if static_configs else {}
@@ -494,6 +500,10 @@ class PrometheusProvider(ProviderBase):
                     host_name, host_address, ports, labels, scrape_metadata
                 )
                 config["static_configs"].append(static_config)
+                if "juju_unit" not in relabel_config["source_labels"]:
+                    relabel_config["source_labels"].append("juju_unit")
+
+        config["relabel_configs"] = [relabel_config]
 
         return config
 
@@ -566,7 +576,10 @@ class PrometheusProvider(ProviderBase):
             for a single wildcard host.
         """
         juju_labels = self._set_juju_labels(labels, scrape_metadata)
-        juju_labels["juju_unit"] = "{}".format(host_name)
+
+        # '/' is not allowed in Prometheus label names. It technically works,
+        # but complex queries silently fail
+        juju_labels["juju_unit"] = "{}".format(host_name.replace("/", "-"))
 
         static_config = {"labels": juju_labels}
 

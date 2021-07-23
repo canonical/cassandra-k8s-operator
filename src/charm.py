@@ -137,6 +137,7 @@ class CassandraOperatorCharm(CharmBase):
         container = event.workload
         make_started(container)
         self.provider.update_address("database", self._bind_address())
+        self._reset_monitoring()
 
     @status_catcher
     def on_config_changed(self, event):
@@ -145,6 +146,7 @@ class CassandraOperatorCharm(CharmBase):
 
     def on_leader_elected(self, event):
         self.provider.update_address("database", self._bind_address())
+        self._reset_monitoring()
 
     def on_database_joined(self, event):
         self.provider.update_port("database", self.model.config["port"])
@@ -196,12 +198,23 @@ class CassandraOperatorCharm(CharmBase):
             self.unit.status = BlockedStatus(event.error_message)
 
     @status_catcher
-    def on_monitoring_joined(self, event):
+    def on_monitoring_joined(self, _):
+        self._setup_monitoring()
+
+    def _reset_monitoring(self):
+        if not self.unit.is_leader():
+            return
+        if self.model.get_relation("monitoring"):
+            for endpoint in self.prometheus_consumer.endpoints:
+                address, port = endpoint.split(":")
+                self.prometheus_consumer.remove_endpoint(
+                    address=address, port=int(port)
+                )
+            self._setup_monitoring()
+
+    def _setup_monitoring(self, event):
         # Turn on metrics exporting. This should be on on ALL NODES, since it does not
         # export per node cluster metrics with the default JMX exporter
-        # if not self.unit.is_leader():
-        #     return
-
         if len(self.model.relations["monitoring"]) > 0:
             container = self.unit.get_container("cassandra")
             cassandra_env = container.pull(ENV_PATH).read()
@@ -213,7 +226,6 @@ class CassandraOperatorCharm(CharmBase):
                 )
                 restart(container)
             if self.unit.is_leader():
-
                 if (
                     not self._dashboard_valid
                     and len(self.model.relations["grafana-dashboard"]) > 0

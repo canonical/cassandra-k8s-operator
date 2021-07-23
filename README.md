@@ -1,43 +1,44 @@
-# Cassandra-Operator
+# Cassandra Operator
 
 ## Description
 
-The [Cassandra] operator provides a NoSQL distributed database solution. It is part of the Observability stack in the [Juju] charm [ecosystem]. Cassandra is highly scalable and fault tolerant.
+Apache [Cassandra] is an open source NoSQL distributed database providing scalability, high availability and fault-tolerance on commodity hardware.
 
-[Cassandra]: https://cassandra.apache.org/
-[Juju]: https://jaas.ai/
-[ecosystem]: https://charmhub.io/
+This Cassandra operator is designed to integrate Cassandra in the [Juju] .[charm ecosystem].
 
 ## Usage
 
-Create a Juju model (say "lma" for your observability operators)
+```sh
+$ juju deploy cassandra-k8s
+```
 
-    juju add-model lma
+### Scale out and down
 
-### Deploy Cassandra
+Changing the amount of units of Cassandra is done by executing:
 
-    juju deploy ./cassandra-k8s.charm --resource cassandra-image='dstathis/cassandra-operator-image:latest'
+```sh
+$ juju scale-application cassandra-k8s <new_unit_count>
+```
 
-### Scale Out Usage
+You should scale the Cassandra cluster gradually, not adding or removing units too fast.
+The rebalancing of the cluster is I/O intensive, with potentially large amounts of data moving between nodes, and that can measurably affect performance.
 
-You may add additional Cassandra units for high availability
+## Relations
 
-    juju add-unit cassandra-k8s
+This operator provides the following relation interfaces:
 
-## Developing
+* `cassandra` provides access to the Cassandra cluster over the [Cassandra Query Language (CQL)][CQL].
 
-Use your existing Python 3 development environment or create and
-activate a Python 3 virtualenv
+The following relation interfaces are consumed:
 
-    virtualenv -p python3 venv
-    source venv/bin/activate
+* `prometheus_scrape` enables the monitoring of the Cassandra cluster by the [Prometheus Operator] charm.
 
-Install the development requirements
+## OCI Images
 
-    pip install -r requirements-dev.txt
+This charm by default uses the latest version of the [`cassandra`](https://hub.docker.com/_/cassandra) image on Docker Hub.
 
-## Testing
-
-Just run `run_tests`:
-
-    ./run_tests
+[Cassandra]: https://cassandra.apache.org/
+[CQL]: https://cassandra.apache.org/doc/latest/cql/
+[Juju]: https://jaas.ai/
+[ecosystem]: https://charmhub.io/
+[Prometheus Operator]: https://charmhub.io/prometheus-k8s
