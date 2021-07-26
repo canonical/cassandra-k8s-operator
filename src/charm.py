@@ -183,6 +183,7 @@ class CassandraOperatorCharm(CharmBase):
 
     def _on_dashboard_broken(self, event):
         self._dashboard_valid = False
+        self.dashboard_consumer.remove_dashboard()
         if (
             isinstance(self.unit.status, BlockedStatus)
             and "dashboard" in self.unit.status.message
