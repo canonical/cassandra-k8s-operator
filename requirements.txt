@@ -2,3 +2,4 @@ git+https://github.com/canonical/operator/#egg=ops
 cassandra-driver
 semantic-version
 jsonpickle
+jinja2
