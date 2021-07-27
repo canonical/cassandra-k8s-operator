@@ -56,6 +56,9 @@ CONFIG_PATH = "/etc/cassandra/cassandra.yaml"
 ENV_PATH = "/etc/cassandra/cassandra-env.sh"
 
 PROMETHEUS_EXPORTER_PORT = 9500
+PROMETHEUS_EXPORTER_DIR = "/opt/cassandra/lib"
+PROMETHEUS_EXPORTER_FILE = "prometheus_exporter_javaagent.jar"
+PROMETHEUS_EXPORTER_PATH = f"{PROMETHEUS_EXPORTER_DIR}/{PROMETHEUS_EXPORTER_FILE}"
 
 
 def restart(container):
@@ -118,7 +121,7 @@ class CassandraOperatorCharm(CharmBase):
                     "metrics_path": "/metrics",
                     "static_configs": [
                         {"targets": ["*:{}".format(PROMETHEUS_EXPORTER_PORT)]}
-                    ]
+                    ],
                 }
             ],
         )
@@ -165,34 +168,28 @@ class CassandraOperatorCharm(CharmBase):
             container = self.unit.get_container("cassandra")
             cassandra_env = container.pull(ENV_PATH).read()
             if "jmx_prometheus_javaagent" not in cassandra_env:
-                exporter_path = (
-                    "/opt/cassandra/lib/prometheus_exporter_javaagent.jar"
-                )
-
+                logger.error(str(container.list_files(PROMETHEUS_EXPORTER_DIR)))
                 try:
-                    container.list_files(exporter_path)
+                    container.list_files(PROMETHEUS_EXPORTER_PATH)
                 except APIError:
                     logger.debug(
                         "Pushing Prometheus exporter to container to {}".format(
-                            exporter_path
+                            PROMETHEUS_EXPORTER_PATH
                         )
                     )
 
                     with open(
                         self.model.resources.fetch("cassandra-prometheus-exporter"),
-                        "rb"
+                        "rb",
                     ) as f:
                         container.push(
-                            path=exporter_path,
-                            source=f,
-                            make_dirs=True,
+                            path=PROMETHEUS_EXPORTER_PATH, source=f, make_dirs=True
                         )
 
                     container.push(
                         ENV_PATH,
-                        cassandra_env
-                        + '\nJVM_OPTS="$JVM_OPTS -javaagent:{}"'.format(
-                            exporter_path, PROMETHEUS_EXPORTER_PORT
+                        '{}\nJVM_OPTS="$JVM_OPTS -javaagent:{}"'.format(
+                            cassandra_env, PROMETHEUS_EXPORTER_PATH
                         ),
                     )
 
