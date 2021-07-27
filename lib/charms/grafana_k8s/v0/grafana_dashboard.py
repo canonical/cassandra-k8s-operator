@@ -16,7 +16,7 @@ from ops.charm import (
 )
 from ops.model import Relation, Unit
 from ops.framework import EventBase, EventSource, StoredState
-from ops.relation import ConsumerBase, ProviderBase
+from ops.relation import ConsumerBase, ConsumerEvents, ProviderBase
 
 from typing import Dict, List, Union
 
@@ -69,8 +69,15 @@ class GrafanaDashboardEvent(EventBase):
         self.valid = snapshot["valid"]
 
 
+class GrafanaConsumerEvents(ConsumerEvents):
+    """Events raised by :class:`GrafanaSourceEvents`"""
+
+    dashboard_status_changed = EventSource(GrafanaDashboardEvent)
+
+
 class GrafanaDashboardConsumer(ConsumerBase):
     _stored = StoredState()
+    on = GrafanaConsumerEvents()
 
     def __init__(
         self,
@@ -125,7 +132,7 @@ class GrafanaDashboardConsumer(ConsumerBase):
         self._stored.event_relation = event_relation
 
         events = self.charm.on[name]
-        self.on.define_event("dashboard_status_changed", GrafanaDashboardEvent)
+
         self.framework.observe(
             events.relation_changed, self._on_grafana_dashboard_relation_changed
         )
@@ -258,6 +265,9 @@ class GrafanaDashboardConsumer(ConsumerBase):
 
         rel = self.framework.model.get_relation(self.name, rel_id)
 
+        if not rel:
+            return
+
         dash = self._stored.dashboards[rel.id]
         dash["invalidated"] = True
         dash["invalidated_reason"] = reason
@@ -270,7 +280,7 @@ class GrafanaDashboardConsumer(ConsumerBase):
             return
 
         rel = self.framework.model.get_relation(self.name)
-        # The relation may be `None` during tests
+
         if not rel:
             return
 
