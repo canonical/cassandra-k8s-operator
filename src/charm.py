@@ -45,6 +45,7 @@ from cassandra.query import SimpleStatement
 from ops.charm import CharmBase
 from ops.main import main
 from ops.model import ActiveStatus, BlockedStatus, MaintenanceStatus, ModelError
+from ops.pebble import ConnectionError
 
 logger = logging.getLogger(__name__)
 
@@ -86,12 +87,6 @@ class CassandraOperatorCharm(CharmBase):
             self.on["database"].relation_joined, self.on_database_joined
         )
         self.framework.observe(
-            self.on["monitoring"].relation_joined, self.on_monitoring_joined
-        )
-        self.framework.observe(
-            self.on["monitoring"].relation_broken, self.on_monitoring_broken
-        )
-        self.framework.observe(
             self.on["cassandra_peers"].relation_changed, self.on_cassandra_peers_changed
         )
         self.framework.observe(
@@ -105,6 +100,7 @@ class CassandraOperatorCharm(CharmBase):
         self.framework.observe(
             self.provider.on.data_changed, self.on_provider_data_changed
         )
+
         self.prometheus_consumer = PrometheusConsumer(
             charm=self,
             name="monitoring",
@@ -112,24 +108,26 @@ class CassandraOperatorCharm(CharmBase):
             service_event=self.on.cassandra_pebble_ready,
             jobs=[{"static_configs": [{"targets": ["*:7070"]}]}],
         )
+        self.framework.observe(
+            self.on["monitoring"].relation_joined, self.on_monitoring_joined
+        )
+        self.framework.observe(
+            self.on["monitoring"].relation_broken, self.on_monitoring_broken
+        )
 
+        self.dashboard_consumer = GrafanaDashboardConsumer(
+            charm=self, name="grafana-dashboard", consumes={"Grafana": ">=2.0.0"},
+        )
         self.framework.observe(
             self.on["grafana-dashboard"].relation_joined, self._on_dashboard_joined
         )
         self.framework.observe(
             self.on["grafana-dashboard"].relation_broken, self._on_dashboard_broken
         )
-
-        self.dashboard_consumer = GrafanaDashboardConsumer(
-            charm=self, name="grafana-dashboard", consumes={"Grafana": ">=2.0.0"}
-        )
         self.framework.observe(
             self.dashboard_consumer.on.dashboard_status_changed,
             self._on_dashboard_status_changed,
         )
-
-        self._dashboard_valid = False
-        self._defer_dashboard_send = False
 
     @status_catcher
     def on_pebble_ready(self, event):
@@ -162,27 +160,13 @@ class CassandraOperatorCharm(CharmBase):
         ):
             self.unit.status = ActiveStatus()
 
-        self._send_dashboard(event)
-
-    def _send_dashboard(self, event):
-        # Thanks to Juju's event resolution mechanics, calling this again
-        # when monitoring is joined will cause the check for the number
-        # of Prometheus units in the dashboard consumer library to raise
-        # an IndexError, since it hasn't finished yet. Delay...
-        if self._defer_dashboard_send:
-            self._defer_dashboard_send = False
-            event.defer()
-            return
-
         dashboard_tmpl = open(
             os.path.join(sys.path[0], "dashboard.json.tmpl"), "r"
         ).read()
 
-        self._dashboard_valid = True
         self.dashboard_consumer.add_dashboard(dashboard_tmpl)
 
     def _on_dashboard_broken(self, event):
-        self._dashboard_valid = False
         self.dashboard_consumer.remove_dashboard()
         if (
             isinstance(self.unit.status, BlockedStatus)
@@ -226,35 +210,22 @@ class CassandraOperatorCharm(CharmBase):
                     + '\nJVM_OPTS="$JVM_OPTS -javaagent:/opt/jmx-exporter/jmx_prometheus_javaagent-0.15.0.jar=7070:/opt/jmx-exporter/cassandra.yaml"',
                 )
                 restart(container)
-            if self.unit.is_leader():
-                if (
-                    not self._dashboard_valid
-                    and len(self.model.relations["grafana-dashboard"]) > 0
-                ):
-                    if len(self.model.get_relation("monitoring").units) == 0:
-                        self._defer_dashboard_send = True
-                    else:
-                        self._defer_dashboard_send = False
-                    self._send_dashboard(event)
 
     @status_catcher
     def on_monitoring_broken(self, event):
         # If there are no monitoring relations, disable metrics
         if len(self.model.get_relation("monitoring").units) == 0:
-            container = self.unit.get_container("cassandra")
-            cassandra_env = container.pull(ENV_PATH).readlines()
-            for line in cassandra_env:
-                if "jmx_prometheus_javaagent" in line:
-                    cassandra_env.remove(line)
-                    container.push(ENV_PATH, "\n".join(cassandra_env))
-                    restart(container)
-                    break
-            if self.unit.is_leader():
-                if len(self.model.relations["grafana-dashboard"]) > 0:
-                    self._dashboard_valid = False
-                    self.dashboard_consumer.invalidate_dashboard(
-                        "Waiting for a prometheus_scrape relation to send dashboard data"
-                    )
+            try:
+                container = self.unit.get_container("cassandra")
+                cassandra_env = container.pull(ENV_PATH).readlines()
+                for line in cassandra_env:
+                    if "jmx_prometheus_javaagent" in line:
+                        cassandra_env.remove(line)
+                        container.push(ENV_PATH, "\n".join(cassandra_env))
+                        restart(container)
+                        break
+            except ConnectionError:
+                logger.warning("Could not disable monitoring. Could not connect to Pebble.")
 
     @status_catcher
     def on_cassandra_peers_changed(self, event):
