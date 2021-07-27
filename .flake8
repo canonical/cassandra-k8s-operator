@@ -7,3 +7,5 @@ exclude:
   build
   dist
   *.egg_info
+  lib/charms/grafana_k8s
+  lib/charms/prometheus_k8s

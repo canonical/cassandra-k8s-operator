@@ -18,6 +18,7 @@ import yaml
 
 import cassandra.cluster
 import ops.model
+import ops.testing
 
 from ops.testing import Harness
 from charm import CassandraOperatorCharm
@@ -163,3 +164,30 @@ class TestCharm(unittest.TestCase):
         )
         content = yaml.safe_load(content_str)
         assert content == sample_content
+
+    @patch("ops.testing._TestingModelBackend.network_get")
+    def test_prometheus_data_set(self, mock_net_get):
+        bind_address = "1.1.1.1"
+        fake_network = {
+            "bind-addresses": [
+                {
+                    "interface-name": "eth0",
+                    "addresses": [
+                        {"hostname": "cassandra-tester-0", "value": bind_address}
+                    ],
+                }
+            ]
+        }
+        mock_net_get.return_value = fake_network
+        rel_id = self.harness.add_relation("monitoring", "otherapp")
+        self.assertIsInstance(rel_id, int)
+        self.harness.add_relation_unit(rel_id, "otherapp/0")
+        self.harness.update_relation_data(rel_id, "otherapp", {})
+        self.assertEqual(
+            json.loads(
+                self.harness.get_relation_data(rel_id, self.harness.model.app.name)[
+                    "scrape_jobs"
+                ]
+            )[0]["static_configs"][0]["targets"],
+            ["*:7070"],
+        )
