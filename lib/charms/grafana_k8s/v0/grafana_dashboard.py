@@ -240,6 +240,11 @@ class GrafanaDashboardConsumer(ConsumerBase):
             return
 
         rel = self.framework.model.get_relation(self.name, rel_id)
+
+        # The relation may be `None` when broken
+        if not rel:
+            return
+
         dash = self._stored.dashboards.pop(rel.id, {})
 
         if dash:
@@ -265,6 +270,9 @@ class GrafanaDashboardConsumer(ConsumerBase):
             return
 
         rel = self.framework.model.get_relation(self.name)
+        # The relation may be `None` during tests
+        if not rel:
+            return
 
         if len(self.model.get_relation(self._stored.event_relation).units) == 0:
             event.defer()

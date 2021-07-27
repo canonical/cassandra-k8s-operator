@@ -116,7 +116,9 @@ class CassandraOperatorCharm(CharmBase):
         )
 
         self.dashboard_consumer = GrafanaDashboardConsumer(
-            charm=self, name="grafana-dashboard", consumes={"Grafana": ">=2.0.0"},
+            charm=self,
+            name="grafana-dashboard",
+            consumes={"Grafana": ">=2.0.0"},
         )
         self.framework.observe(
             self.on["grafana-dashboard"].relation_joined, self._on_dashboard_joined
@@ -227,7 +229,7 @@ class CassandraOperatorCharm(CharmBase):
             except ConnectionError:
                 logger.warning(
                     "Could not disable monitoring. Could not connect to Pebble."
-                    )
+                )
 
     @status_catcher
     def on_cassandra_peers_changed(self, event):
