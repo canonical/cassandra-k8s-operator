@@ -196,8 +196,15 @@ class GrafanaDashboardConsumer(ConsumerBase):
             return
 
         valid_message = data.get("valid", False)
-        if valid_message:
+        if valid_message and self._check_monitoring_relation():
             self.on.dashboard_status_changed.emit(valid=True)
+        else:
+            if self.charm.unit.is_leader():
+                self.invalidate_dashboard(
+                    "Waiting for a {} relation to send dashboard data".format(
+                        self._stored.event_relation
+                    )
+                )
 
     def _update_dashboards(self, data: str, rel_id: int, prom_unit: Unit) -> None:
         """
@@ -304,6 +311,14 @@ class GrafanaDashboardConsumer(ConsumerBase):
                     )
                 )
 
+    def _check_monitoring_relation(self) -> bool:
+        """Check whether an existing monitoring relation exists."""
+        return (
+            True
+            if len(self.model.get_relation(self._stored.event_relation).units) == 0
+            else False
+        )
+
     @property
     def dashboards(self) -> List:
         """Return a list of known dashboard."""
@@ -391,14 +406,7 @@ class GrafanaDashboardProvider(ProviderBase):
             )
             return
 
-        if not self._stored.active_sources:
-            msg = "Cannot add Grafana dashboard. No configured datasources"
-            self._stored.invalid_dashboards[rel.id] = data
-            self._purge_dead_dashboard(rel.id)
-            logger.warning(msg)
-            rel.data[self.charm.app]["event"] = json.dumps(
-                {"errors": msg, "valid": False}
-            )
+        if not self._check_active_data_sources(data, rel):
             return
 
         self._validate_dashboard_data(data, rel)
@@ -478,14 +486,8 @@ class GrafanaDashboardProvider(ProviderBase):
                 ][0]
             )
         except IndexError:
-            msg = "Cannot find a Grafana datasource matching the dashboard"
-            self._stored.invalid_dashboards[rel.id] = data
-            self._purge_dead_dashboard(rel.id)
-            logger.warning(msg)
-            rel.data[self.charm.app]["event"] = json.dumps(
-                {"errors": msg, "valid": False}
-            )
-            return
+            self._check_active_data_sources(data, rel)
+            return None
         return grafana_datasource
 
     def _check_active_data_sources(self, data: Dict, rel: Relation) -> bool:
