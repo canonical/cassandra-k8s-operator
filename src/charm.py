@@ -225,7 +225,9 @@ class CassandraOperatorCharm(CharmBase):
                         restart(container)
                         break
             except ConnectionError:
-                logger.warning("Could not disable monitoring. Could not connect to Pebble.")
+                logger.warning(
+                    "Could not disable monitoring. Could not connect to Pebble."
+                    )
 
     @status_catcher
     def on_cassandra_peers_changed(self, event):
