@@ -16,7 +16,7 @@ from ops.charm import (
 )
 from ops.model import Relation, Unit
 from ops.framework import EventBase, EventSource, StoredState
-from ops.relation import ConsumerBase, ProviderBase
+from ops.relation import ConsumerBase, ConsumerEvents, ProviderBase
 
 from typing import Dict, List, Union
 
@@ -69,8 +69,15 @@ class GrafanaDashboardEvent(EventBase):
         self.valid = snapshot["valid"]
 
 
+class GrafanaConsumerEvents(ConsumerEvents):
+    """Events raised by :class:`GrafanaSourceEvents`"""
+
+    dashboard_status_changed = EventSource(GrafanaDashboardEvent)
+
+
 class GrafanaDashboardConsumer(ConsumerBase):
     _stored = StoredState()
+    on = GrafanaConsumerEvents()
 
     def __init__(
         self,
@@ -125,7 +132,7 @@ class GrafanaDashboardConsumer(ConsumerBase):
         self._stored.event_relation = event_relation
 
         events = self.charm.on[name]
-        self.on.define_event("dashboard_status_changed", GrafanaDashboardEvent)
+
         self.framework.observe(
             events.relation_changed, self._on_grafana_dashboard_relation_changed
         )
@@ -189,8 +196,15 @@ class GrafanaDashboardConsumer(ConsumerBase):
             return
 
         valid_message = data.get("valid", False)
-        if valid_message:
+        if valid_message and self._check_monitoring_relation():
             self.on.dashboard_status_changed.emit(valid=True)
+        else:
+            if self.charm.unit.is_leader():
+                self.invalidate_dashboard(
+                    "Waiting for a {} relation to send dashboard data".format(
+                        self._stored.event_relation
+                    )
+                )
 
     def _update_dashboards(self, data: str, rel_id: int, prom_unit: Unit) -> None:
         """
@@ -258,6 +272,9 @@ class GrafanaDashboardConsumer(ConsumerBase):
 
         rel = self.framework.model.get_relation(self.name, rel_id)
 
+        if not rel:
+            return
+
         dash = self._stored.dashboards[rel.id]
         dash["invalidated"] = True
         dash["invalidated_reason"] = reason
@@ -270,7 +287,7 @@ class GrafanaDashboardConsumer(ConsumerBase):
             return
 
         rel = self.framework.model.get_relation(self.name)
-        # The relation may be `None` during tests
+
         if not rel:
             return
 
@@ -293,6 +310,14 @@ class GrafanaDashboardConsumer(ConsumerBase):
                         self._stored.event_relation
                     )
                 )
+
+    def _check_monitoring_relation(self) -> bool:
+        """Check whether an existing monitoring relation exists."""
+        return (
+            True
+            if len(self.model.get_relation(self._stored.event_relation).units) == 0
+            else False
+        )
 
     @property
     def dashboards(self) -> List:
@@ -381,14 +406,7 @@ class GrafanaDashboardProvider(ProviderBase):
             )
             return
 
-        if not self._stored.active_sources:
-            msg = "Cannot add Grafana dashboard. No configured datasources"
-            self._stored.invalid_dashboards[rel.id] = data
-            self._purge_dead_dashboard(rel.id)
-            logger.warning(msg)
-            rel.data[self.charm.app]["event"] = json.dumps(
-                {"errors": msg, "valid": False}
-            )
+        if not self._check_active_data_sources(data, rel):
             return
 
         self._validate_dashboard_data(data, rel)
@@ -468,14 +486,8 @@ class GrafanaDashboardProvider(ProviderBase):
                 ][0]
             )
         except IndexError:
-            msg = "Cannot find a Grafana datasource matching the dashboard"
-            self._stored.invalid_dashboards[rel.id] = data
-            self._purge_dead_dashboard(rel.id)
-            logger.warning(msg)
-            rel.data[self.charm.app]["event"] = json.dumps(
-                {"errors": msg, "valid": False}
-            )
-            return
+            self._check_active_data_sources(data, rel)
+            return None
         return grafana_datasource
 
     def _check_active_data_sources(self, data: Dict, rel: Relation) -> bool:
