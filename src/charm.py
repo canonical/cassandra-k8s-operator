@@ -133,14 +133,14 @@ class CassandraOperatorCharm(CharmBase):
             consumes={"Grafana": ">=2.0.0"},
         )
         self.framework.observe(
-            self.on["grafana-dashboard"].relation_joined, self._on_dashboard_joined
+            self.on["grafana-dashboard"].relation_joined, self.on_dashboard_joined
         )
         self.framework.observe(
-            self.on["grafana-dashboard"].relation_broken, self._on_dashboard_broken
+            self.on["grafana-dashboard"].relation_broken, self.on_dashboard_broken
         )
         self.framework.observe(
             self.dashboard_consumer.on.dashboard_status_changed,
-            self._on_dashboard_status_changed,
+            self.on_dashboard_status_changed,
         )
 
     @status_catcher
@@ -179,7 +179,7 @@ class CassandraOperatorCharm(CharmBase):
 
         self.dashboard_consumer.add_dashboard(dashboard_tmpl)
 
-    def _on_dashboard_broken(self, event):
+    def on_dashboard_broken(self, event):
         self.dashboard_consumer.remove_dashboard()
         if (
             isinstance(self.unit.status, BlockedStatus)
@@ -187,7 +187,7 @@ class CassandraOperatorCharm(CharmBase):
         ):
             self.unit.status = ActiveStatus()
 
-    def _on_dashboard_status_changed(self, event):
+    def on_dashboard_status_changed(self, event):
         if event.valid:
             self._dashboard_valid = True
             self.unit.status = ActiveStatus()
