@@ -166,7 +166,8 @@ class TestCharm(unittest.TestCase):
         assert content == sample_content
 
     @patch("ops.testing._TestingModelBackend.network_get")
-    def test_prometheus_data_set(self, mock_net_get):
+    @patch("ops.testing._TestingPebbleClient.list_files")
+    def test_prometheus_data_set(self, mock_net_get, mock_list_files):
         bind_address = "1.1.1.1"
         fake_network = {
             "bind-addresses": [
@@ -189,5 +190,5 @@ class TestCharm(unittest.TestCase):
                     "scrape_jobs"
                 ]
             )[0]["static_configs"][0]["targets"],
-            ["*:7070"],
+            ["*:9500"],
         )
