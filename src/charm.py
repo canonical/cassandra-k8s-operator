@@ -147,7 +147,7 @@ class CassandraOperatorCharm(CharmBase):
     def on_pebble_ready(self, event):
         self._configure(event)
         container = event.workload
-        if len(self.model.get_relation("monitoring").units) > 0:
+        if len(self.model.relations["monitoring"]) > 0:
             self._setup_monitoring(event)
         make_started(container)
         self.provider.update_address("database", self._bind_address())
@@ -204,7 +204,7 @@ class CassandraOperatorCharm(CharmBase):
     def _reset_monitoring(self):
         if not self.unit.is_leader():
             return
-        if self.model.get_relation("monitoring"):
+        if len(self.model.relations["monitoring"]) > 0:
             for endpoint in self.prometheus_consumer.endpoints:
                 address, port = endpoint.split(":")
                 self.prometheus_consumer.remove_endpoint(
@@ -218,9 +218,9 @@ class CassandraOperatorCharm(CharmBase):
         if len(self.model.relations["monitoring"]) > 0:
             container = self.unit.get_container("cassandra")
             cassandra_env = container.pull(ENV_PATH).read()
-            restart = False
+            restart_required = False
             if "jmx_prometheus_javaagent" not in cassandra_env:
-                restart = True
+                restart_required = True
                 container.push(
                     ENV_PATH,
                     '{}\nJVM_OPTS="$JVM_OPTS -javaagent:{}"'.format(
@@ -231,7 +231,7 @@ class CassandraOperatorCharm(CharmBase):
             try:
                 container.list_files(PROMETHEUS_EXPORTER_PATH)
             except APIError:
-                restart = True
+                restart_required = True
                 logger.debug(
                     "Pushing Prometheus exporter to container to {}".format(
                         PROMETHEUS_EXPORTER_PATH
@@ -246,13 +246,13 @@ class CassandraOperatorCharm(CharmBase):
                         path=PROMETHEUS_EXPORTER_PATH, source=f, make_dirs=True
                     )
 
-            if restart:
+            if restart_required:
                 restart(container)
 
     @status_catcher
     def on_monitoring_broken(self, event):
         # If there are no monitoring relations, disable metrics
-        if len(self.model.get_relation("monitoring").units) == 0:
+        if len(self.model.relations["monitoring"]) == 0:
             try:
                 container = self.unit.get_container("cassandra")
                 cassandra_env = container.pull(ENV_PATH).readlines()
