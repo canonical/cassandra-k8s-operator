@@ -268,7 +268,7 @@ LIBAPI = 0
 
 # Increment this PATCH version before using `charmcraft publish-lib` or reset
 # to 0 if you are raising the major API version
-LIBPATCH = 1
+LIBPATCH = 2
 
 logger = logging.getLogger(__name__)
 
@@ -276,8 +276,8 @@ logger = logging.getLogger(__name__)
 def _sanitize_scrape_configuration(job):
     return {
         "job_name": job.get("job_name"),
-        "metrics_path": job.get("metrics_path"),
-        "static_configs": job.get("static_configs"),
+        "metrics_path": job.get("metrics_path", "/metrics"),
+        "static_configs": job.get("static_configs", [{"targets": ["*:80"]}]),
     }
 
 
@@ -391,17 +391,12 @@ class PrometheusProvider(ProviderBase):
         if len(relation.units) == 0:
             return []
 
-        scrape_jobs_raw = relation.data[relation.app].get("scrape_jobs")
-        if not scrape_jobs_raw:
+        scrape_jobs = json.loads(relation.data[relation.app].get("scrape_jobs", "[]"))
+
+        if not scrape_jobs:
             return []
 
-        scrape_jobs = json.loads(scrape_jobs_raw)
-
-        scrape_metadata_raw = relation.data[relation.app].get("scrape_metadata")
-        if not scrape_metadata_raw:
-            return []
-
-        scrape_metadata = json.loads(scrape_metadata_raw)
+        scrape_metadata = json.loads(relation.data[relation.app].get("scrape_metadata"))
 
         job_name_prefix = "juju_{}_{}_{}_prometheus_{}_scrape".format(
             scrape_metadata["model"],
@@ -468,9 +463,9 @@ class PrometheusProvider(ProviderBase):
             for a single job.
         """
         name = job.get("job_name")
-        job_name = "job_name_prefix_{}".format(name) if name else job_name_prefix
+        job_name = "{}_{}".format(job_name_prefix, name) if name else job_name_prefix
 
-        config = {"job_name": job_name}
+        config = {"job_name": job_name, "metrics_path": job["metrics_path"]}
 
         static_configs = job.get("static_configs")
         config["static_configs"] = []

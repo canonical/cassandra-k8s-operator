@@ -113,7 +113,6 @@ class CassandraOperatorCharm(CharmBase):
             service_event=self.on.cassandra_pebble_ready,
             jobs=[
                 {
-                    "metrics_path": "/metrics",
                     "static_configs": [
                         {"targets": ["*:{}".format(PROMETHEUS_EXPORTER_PORT)]}
                     ],
