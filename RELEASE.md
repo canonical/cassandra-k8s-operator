@@ -22,6 +22,8 @@ For more information about CharmHub channels, refer to the [Juju charm store](ht
 Refer to the [Publish your operator in Charmhub](https://discourse.charmhub.io/t/publish-your-operator-in-charmhub) documentation.
 After a `latest/stable` release, it is expected that the version of the charm is the same as the one in `latest/candidate`, and those two channels will diverge again when we are ramping up through `latest/candidate` releases for a new `latest/stable` release.
 
+The `cassandra-prometheus-exporter` resource must refer to a version of the [`instaclustr/cassandra-exporter`](https://github.com/instaclustr/cassandra-exporter) Java Agent tested with the OCI image set as the `cassandra-image` resource.
+
 ## A note on granularity of revisions
 
 We believe in shipping often and with confidence.

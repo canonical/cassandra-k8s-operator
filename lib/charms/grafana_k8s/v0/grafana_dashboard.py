@@ -20,9 +20,15 @@ from ops.relation import ConsumerBase, ConsumerEvents, ProviderBase
 
 from typing import Dict, List, Union
 
-LIBID = "987654321"
-LIBAPI = 1
-LIBPATCH = 0
+# The unique Charmhub library identifier, never change it
+LIBID = "c49eb9c7dfef40c7b6235ebd67010a3f"
+
+# Increment this major API version when introducing breaking changes
+LIBAPI = 0
+
+# Increment this PATCH version before using `charmcraft publish-lib` or reset
+# to 0 if you are raising the major API version
+LIBPATCH = 1
 
 logger = logging.getLogger(__name__)
 

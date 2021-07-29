@@ -28,7 +28,7 @@ from charms.cassandra_k8s.v0.cassandra import (
     generate_password,
     CassandraProvider,
 )
-from charms.prometheus.v1.prometheus import PrometheusConsumer
+from charms.prometheus_k8s.v0.prometheus import PrometheusConsumer
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardConsumer
 
 from cassandra import ConsistencyLevel, InvalidRequest
@@ -45,7 +45,7 @@ from cassandra.query import SimpleStatement
 from ops.charm import CharmBase
 from ops.main import main
 from ops.model import ActiveStatus, BlockedStatus, MaintenanceStatus, ModelError
-from ops.pebble import ConnectionError
+from ops.pebble import APIError, ConnectionError
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +54,11 @@ CQL_PROTOCOL_VERSION = 4
 ROOT_USER = "charm_root"
 CONFIG_PATH = "/etc/cassandra/cassandra.yaml"
 ENV_PATH = "/etc/cassandra/cassandra-env.sh"
+
+PROMETHEUS_EXPORTER_PORT = 9500
+PROMETHEUS_EXPORTER_DIR = "/opt/cassandra/lib"
+PROMETHEUS_EXPORTER_FILE = "prometheus_exporter_javaagent.jar"
+PROMETHEUS_EXPORTER_PATH = f"{PROMETHEUS_EXPORTER_DIR}/{PROMETHEUS_EXPORTER_FILE}"
 
 
 def restart(container):
@@ -104,9 +109,15 @@ class CassandraOperatorCharm(CharmBase):
         self.prometheus_consumer = PrometheusConsumer(
             charm=self,
             name="monitoring",
-            consumes={"Prometheus": ">=2"},
+            consumes={"prometheus": ">=2"},
             service_event=self.on.cassandra_pebble_ready,
-            jobs=[{"static_configs": [{"targets": ["*:7070"]}]}],
+            jobs=[
+                {
+                    "static_configs": [
+                        {"targets": ["*:{}".format(PROMETHEUS_EXPORTER_PORT)]}
+                    ],
+                }
+            ],
         )
         self.framework.observe(
             self.on["monitoring"].relation_joined, self.on_monitoring_joined
@@ -121,23 +132,24 @@ class CassandraOperatorCharm(CharmBase):
             consumes={"Grafana": ">=2.0.0"},
         )
         self.framework.observe(
-            self.on["grafana-dashboard"].relation_joined, self._on_dashboard_joined
+            self.on["grafana-dashboard"].relation_joined, self.on_dashboard_joined
         )
         self.framework.observe(
-            self.on["grafana-dashboard"].relation_broken, self._on_dashboard_broken
+            self.on["grafana-dashboard"].relation_broken, self.on_dashboard_broken
         )
         self.framework.observe(
             self.dashboard_consumer.on.dashboard_status_changed,
-            self._on_dashboard_status_changed,
+            self.on_dashboard_status_changed,
         )
 
     @status_catcher
     def on_pebble_ready(self, event):
         self._configure(event)
         container = event.workload
+        if len(self.model.relations["monitoring"]) > 0:
+            self._setup_monitoring(event)
         make_started(container)
         self.provider.update_address("database", self._bind_address())
-        self._reset_monitoring()
 
     @status_catcher
     def on_config_changed(self, event):
@@ -146,13 +158,13 @@ class CassandraOperatorCharm(CharmBase):
 
     def on_leader_elected(self, event):
         self.provider.update_address("database", self._bind_address())
-        self._reset_monitoring()
 
     def on_database_joined(self, event):
         self.provider.update_port("database", self.model.config["port"])
         self.provider.update_address("database", self._bind_address())
 
-    def _on_dashboard_joined(self, event):
+    @status_catcher
+    def on_dashboard_joined(self, event):
         if not self.unit.is_leader():
             return
 
@@ -168,7 +180,7 @@ class CassandraOperatorCharm(CharmBase):
 
         self.dashboard_consumer.add_dashboard(dashboard_tmpl)
 
-    def _on_dashboard_broken(self, event):
+    def on_dashboard_broken(self, event):
         self.dashboard_consumer.remove_dashboard()
         if (
             isinstance(self.unit.status, BlockedStatus)
@@ -176,7 +188,7 @@ class CassandraOperatorCharm(CharmBase):
         ):
             self.unit.status = ActiveStatus()
 
-    def _on_dashboard_status_changed(self, event):
+    def on_dashboard_status_changed(self, event):
         if event.valid:
             self._dashboard_valid = True
             self.unit.status = ActiveStatus()
@@ -191,7 +203,7 @@ class CassandraOperatorCharm(CharmBase):
     def _reset_monitoring(self):
         if not self.unit.is_leader():
             return
-        if self.model.get_relation("monitoring"):
+        if len(self.model.relations["monitoring"]) > 0:
             for endpoint in self.prometheus_consumer.endpoints:
                 address, port = endpoint.split(":")
                 self.prometheus_consumer.remove_endpoint(
@@ -205,18 +217,41 @@ class CassandraOperatorCharm(CharmBase):
         if len(self.model.relations["monitoring"]) > 0:
             container = self.unit.get_container("cassandra")
             cassandra_env = container.pull(ENV_PATH).read()
+            restart_required = False
             if "jmx_prometheus_javaagent" not in cassandra_env:
+                restart_required = True
                 container.push(
                     ENV_PATH,
-                    cassandra_env
-                    + '\nJVM_OPTS="$JVM_OPTS -javaagent:/opt/jmx-exporter/jmx_prometheus_javaagent-0.15.0.jar=7070:/opt/jmx-exporter/cassandra.yaml"',
+                    '{}\nJVM_OPTS="$JVM_OPTS -javaagent:{}"'.format(
+                        cassandra_env, PROMETHEUS_EXPORTER_PATH
+                    ),
                 )
+
+            try:
+                container.list_files(PROMETHEUS_EXPORTER_PATH)
+            except APIError:
+                restart_required = True
+                logger.debug(
+                    "Pushing Prometheus exporter to container to {}".format(
+                        PROMETHEUS_EXPORTER_PATH
+                    )
+                )
+
+                with open(
+                    self.model.resources.fetch("cassandra-prometheus-exporter"),
+                    "rb",
+                ) as f:
+                    container.push(
+                        path=PROMETHEUS_EXPORTER_PATH, source=f, make_dirs=True
+                    )
+
+            if restart_required:
                 restart(container)
 
     @status_catcher
     def on_monitoring_broken(self, event):
         # If there are no monitoring relations, disable metrics
-        if len(self.model.get_relation("monitoring").units) == 0:
+        if len(self.model.relations["monitoring"]) == 0:
             try:
                 container = self.unit.get_container("cassandra")
                 cassandra_env = container.pull(ENV_PATH).readlines()
@@ -226,6 +261,7 @@ class CassandraOperatorCharm(CharmBase):
                         container.push(ENV_PATH, "\n".join(cassandra_env))
                         restart(container)
                         break
+                container.remove_path(PROMETHEUS_EXPORTER_PATH)
             except ConnectionError:
                 logger.warning(
                     "Could not disable monitoring. Could not connect to Pebble."
