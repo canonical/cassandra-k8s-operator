@@ -217,7 +217,6 @@ class CassandraOperatorCharm(CharmBase):
             container = self.unit.get_container("cassandra")
             cassandra_env = container.pull(ENV_PATH).read()
             if "jmx_prometheus_javaagent" not in cassandra_env:
-                logger.error(str(container.list_files(PROMETHEUS_EXPORTER_DIR)))
                 try:
                     container.list_files(PROMETHEUS_EXPORTER_PATH)
                 except APIError:
