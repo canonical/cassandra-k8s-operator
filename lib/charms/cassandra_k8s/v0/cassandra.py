@@ -147,8 +147,8 @@ from ops.framework import EventBase, EventSource, ObjectEvents
 from ops.relation import ConsumerBase, ProviderBase, ConsumerEvents
 
 LIBID = "fab458c53af54b0fa7ff696d71e243c1"
-LIBAPI = 1
-LIBPATCH = 0
+LIBAPI = 0
+LIBPATCH = 1
 logger = logging.getLogger(__name__)
 
 
