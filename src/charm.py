@@ -147,6 +147,8 @@ class CassandraOperatorCharm(CharmBase):
     def on_pebble_ready(self, event):
         self._configure(event)
         container = event.workload
+        if len(self.model.get_relation("monitoring").units) > 0:
+            self._setup_monitoring(event)
         make_started(container)
         self.provider.update_address("database", self._bind_address())
 
@@ -216,32 +218,36 @@ class CassandraOperatorCharm(CharmBase):
         if len(self.model.relations["monitoring"]) > 0:
             container = self.unit.get_container("cassandra")
             cassandra_env = container.pull(ENV_PATH).read()
+            restart = False
             if "jmx_prometheus_javaagent" not in cassandra_env:
-                try:
-                    container.list_files(PROMETHEUS_EXPORTER_PATH)
-                except APIError:
-                    logger.debug(
-                        "Pushing Prometheus exporter to container to {}".format(
-                            PROMETHEUS_EXPORTER_PATH
-                        )
+                restart = True
+                container.push(
+                    ENV_PATH,
+                    '{}\nJVM_OPTS="$JVM_OPTS -javaagent:{}"'.format(
+                        cassandra_env, PROMETHEUS_EXPORTER_PATH
+                    ),
+                )
+
+            try:
+                container.list_files(PROMETHEUS_EXPORTER_PATH)
+            except APIError:
+                restart = True
+                logger.debug(
+                    "Pushing Prometheus exporter to container to {}".format(
+                        PROMETHEUS_EXPORTER_PATH
                     )
+                )
 
-                    with open(
-                        self.model.resources.fetch("cassandra-prometheus-exporter"),
-                        "rb",
-                    ) as f:
-                        container.push(
-                            path=PROMETHEUS_EXPORTER_PATH, source=f, make_dirs=True
-                        )
-
+                with open(
+                    self.model.resources.fetch("cassandra-prometheus-exporter"),
+                    "rb",
+                ) as f:
                     container.push(
-                        ENV_PATH,
-                        '{}\nJVM_OPTS="$JVM_OPTS -javaagent:{}"'.format(
-                            cassandra_env, PROMETHEUS_EXPORTER_PATH
-                        ),
+                        path=PROMETHEUS_EXPORTER_PATH, source=f, make_dirs=True
                     )
 
-                    restart(container)
+            if restart:
+                restart(container)
 
     @status_catcher
     def on_monitoring_broken(self, event):
@@ -256,6 +262,7 @@ class CassandraOperatorCharm(CharmBase):
                         container.push(ENV_PATH, "\n".join(cassandra_env))
                         restart(container)
                         break
+                container.remove_path(PROMETHEUS_EXPORTER_PATH)
             except ConnectionError:
                 logger.warning(
                     "Could not disable monitoring. Could not connect to Pebble."
