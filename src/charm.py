@@ -47,6 +47,8 @@ from ops.main import main
 from ops.model import ActiveStatus, BlockedStatus, MaintenanceStatus, ModelError
 from ops.pebble import APIError, ConnectionError
 
+from re import match
+
 logger = logging.getLogger(__name__)
 
 
@@ -418,6 +420,13 @@ class CassandraOperatorCharm(CharmBase):
             conn.execute(f"GRANT ALL PERMISSIONS ON KEYSPACE {db_name} to '{user}'")
 
     def _configure(self, event):
+        heap_size = self.model.config["heap_size"]
+
+        if match("^\\d+[kKmMgG]$", heap_size) is None:
+            message = f"Invalid Cassandra heap size setting: '{heap_size}'"
+            self.unit.status = BlockedStatus(message)
+            raise DeferEventError(event, message)
+
         if self._num_units() != self._goal_units():
             self.unit.status = MaintenanceStatus("Waiting for units")
             raise DeferEventError(event, "Units not up in _configure()")
@@ -425,6 +434,7 @@ class CassandraOperatorCharm(CharmBase):
         if (bind_address := self._bind_address()) is None:
             self.unit.status = MaintenanceStatus("Waiting for network address")
             raise DeferEventError(event, "No ip address in _configure()")
+
         peer_rel = self.model.get_relation("cassandra-peers")
         peer_rel.data[self.unit]["peer_address"] = bind_address
 
@@ -455,6 +465,7 @@ class CassandraOperatorCharm(CharmBase):
         logger.debug("Pod spec set successfully.")
 
     def _build_layer(self, event):
+        heap_size = self.model.config["heap_size"]
         layer = {
             "summary": "Cassandra Layer",
             "description": "pebble config layer for Cassandra",
@@ -465,6 +476,7 @@ class CassandraOperatorCharm(CharmBase):
                     "command": "docker-entrypoint.sh cassandra -f",
                     "startup": "enabled",
                     "environment": {
+                        "JVM_OPTS": f"-Xms{heap_size} -Xmx{heap_size}",
                         "CASSANDRA_SEEDS": self._seeds(event),
                     },
                 }

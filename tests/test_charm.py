@@ -192,3 +192,13 @@ class TestCharm(unittest.TestCase):
             )[0]["static_configs"][0]["targets"],
             ["*:9500"],
         )
+
+    @patch("ops.testing._TestingModelBackend.network_get")
+    @patch("ops.testing._TestingPebbleClient.list_files")
+    def test_heap_size_config_invalid(self, mock_net_get, mock_list_files):
+        self.harness.update_config({"heap_size": "0.5g"})
+
+        self.assertEqual(
+            self.harness.model.unit.status,
+            ops.model.BlockedStatus("Invalid Cassandra heap size setting: '0.5g'"),
+        )
