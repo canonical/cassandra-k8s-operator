@@ -422,7 +422,7 @@ class CassandraOperatorCharm(CharmBase):
     def _configure(self, event):
         heap_size = self.model.config["heap_size"]
 
-        if match("^\\d+[kKmMgG]$", heap_size) is None:
+        if match(r"^\d+[KMG]$", heap_size) is None:
             message = f"Invalid Cassandra heap size setting: '{heap_size}'"
             self.unit.status = BlockedStatus(message)
             raise DeferEventError(event, message)
