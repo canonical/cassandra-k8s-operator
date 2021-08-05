@@ -23,7 +23,7 @@ options:
       Amount of memory to set to the Cassandra's JVM heap.
       Used for both minimum and maximum heap size (`-Xms` and `-Xmx` respectively).
       Valid values are formed by an integer, followed by one of the following memory units:
-      `k` (Kylobytes), `m` (megabytes), `g` (gigabytes).
+      `k` (Kilobytes), `m` (megabytes), `g` (gigabytes).
       Memory units can also be capitalized as `K`, `M`, `G`.
       Notice that, since the numerical value of the setting must be an integer,
       using `-Xmx512m` is valid, but `-Xmx0.5g` will cause an error.
