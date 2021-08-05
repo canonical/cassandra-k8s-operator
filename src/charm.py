@@ -47,7 +47,7 @@ from ops.main import main
 from ops.model import ActiveStatus, BlockedStatus, MaintenanceStatus, ModelError
 from ops.pebble import APIError, ConnectionError
 
-from re import match
+from re import IGNORECASE, match
 
 logger = logging.getLogger(__name__)
 
@@ -422,7 +422,7 @@ class CassandraOperatorCharm(CharmBase):
     def _configure(self, event):
         heap_size = self.model.config["heap_size"]
 
-        if match(r"^\d+[KMG]$", heap_size) is None:
+        if match(r"^\d+[KMG]$", heap_size, IGNORECASE) is None:
             message = f"Invalid Cassandra heap size setting: '{heap_size}'"
             self.unit.status = BlockedStatus(message)
             raise DeferEventError(event, message)
