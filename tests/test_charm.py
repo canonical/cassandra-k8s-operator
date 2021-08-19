@@ -192,3 +192,43 @@ class TestCharm(unittest.TestCase):
             )[0]["static_configs"][0]["targets"],
             ["*:9500"],
         )
+
+    @patch("ops.testing._TestingModelBackend.network_get")
+    @patch("ops.testing._TestingPebbleClient.list_files")
+    def test_heap_size_default(self, mock_net_get, mock_list_files):
+        cassandra_environment = (
+            self._start_cassandra_and_get_pebble_service().environment
+        )
+
+        self.assertEqual(cassandra_environment["JVM_OPTS"], "-Xms6G -Xmx6G")
+        self.assertEqual(self.harness.model.unit.status, ops.model.ActiveStatus())
+
+    @patch("ops.testing._TestingModelBackend.network_get")
+    @patch("ops.testing._TestingPebbleClient.list_files")
+    def test_heap_size_config_success(self, mock_net_get, mock_list_files):
+        self.harness.update_config({"heap_size": "1g"})
+
+        cassandra_environment = (
+            self._start_cassandra_and_get_pebble_service().environment
+        )
+
+        self.assertEqual(cassandra_environment["JVM_OPTS"], "-Xms1g -Xmx1g")
+        self.assertEqual(self.harness.model.unit.status, ops.model.ActiveStatus())
+
+    @patch("ops.testing._TestingModelBackend.network_get")
+    @patch("ops.testing._TestingPebbleClient.list_files")
+    def test_heap_size_config_invalid(self, mock_net_get, mock_list_files):
+        self.harness.update_config({"heap_size": "0.5g"})
+
+        self.assertEqual(
+            self.harness.model.unit.status,
+            ops.model.BlockedStatus("Invalid Cassandra heap size setting: '0.5g'"),
+        )
+
+    def _start_cassandra_and_get_pebble_service(self):
+        container = self.harness.model.unit.get_container("cassandra")
+
+        self.harness.charm.on.cassandra_pebble_ready.emit(container)
+
+        pebble_plan = self.harness.get_container_pebble_plan("cassandra")
+        return pebble_plan.services["cassandra"]
