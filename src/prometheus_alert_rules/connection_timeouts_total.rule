@@ -1,0 +1,12 @@
+# Based on https://awesome-prometheus-alerts.grep.to/rules#rule-cassandra-1-6
+alert: CassandraConnectionTimeoutsTotal
+expr: avg(cassandra_client_request_timeouts_total{%%juju_topology%%}) by (juju_model,juju_model_uuid,juju_application,juju_unit) > 5
+for: 2m
+labels:
+  severity: critical
+annotations:
+  summary: Cassandra node {{ $labels.juju_model }}/{{ $labels.juju_unit }} has many connection timeouts
+  description: >
+    {{ $value }} connection between Cassandra node {{ $labels.juju_model }}/{{ $labels.juju_unit }} and others are ending in timeout
+    Maximum amount of connections expected: 5
+    LABELS = {{ $labels }}

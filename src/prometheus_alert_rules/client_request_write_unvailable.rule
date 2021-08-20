@@ -1,0 +1,11 @@
+# Based on https://awesome-prometheus-alerts.grep.to/rules#rule-cassandra-1-9
+alert: CassandraClientRequestWriteUnvailable
+expr: changes(cassandra_client_request_unavailable_exceptions_total{%%juju_topology%%,operation="write"}[1m]) > 0
+for: 0m
+labels:
+  severity: critical
+annotations:
+  summary: Cassandra node {{ $labels.juju_model }}/{{ $labels.juju_unit }} is experiencing client request unvailable write
+  description: >
+    Cassandra Node {{ $labels.juju_model }} {{ $labels.juju_unit }} has experienced client request unvailable write over the last minute
+    LABELS = {{ $labels }}

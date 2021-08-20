@@ -1,0 +1,11 @@
+# Based on https://awesome-prometheus-alerts.grep.to/rules#rule-cassandra-1-7
+alert: CassandraStorageExceptions
+expr: changes(cassandra_storage_exceptions_total{%%juju_topology%%}[1m]) > 1
+for: 0m
+labels:
+  severity: critical
+annotations:
+  summary: Cassandra node {{ $labels.juju_model }}/{{ $labels.juju_unit }} is experiencing storage exceptions
+  description: >
+    Something is going wrong with the storage on the Cassandra node {{ $labels.juju_model }}/{{ $labels.juju_unit }} and results in storage exceptions
+    LABELS = {{ $labels }}
