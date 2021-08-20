@@ -143,7 +143,7 @@ class TestCharm(unittest.TestCase):
         self.assertEqual(
             rel.data[self.harness.charm.app].get("root_password", None), None
         )
-        self.assertEqual(self.harness.charm._root_password(None), "password")
+        self.assertEqual(self.harness.charm._root_password(), "password")
 
     @patch.object(CassandraOperatorCharm, "_goal_units", new=lambda x: 2)
     def test_scale_up(self):
@@ -152,7 +152,7 @@ class TestCharm(unittest.TestCase):
         self.harness.update_relation_data(
             rel_id, "cassandra/1", {"peer_address": "1.1.1.1"}
         )
-        seeds = self.harness.charm._seeds(None).split(",")
+        seeds = self.harness.charm._seeds().split(",")
         assert len(seeds) == 2
 
     def test_config_file_is_set(self):

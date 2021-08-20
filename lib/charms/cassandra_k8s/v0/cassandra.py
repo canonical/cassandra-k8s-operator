@@ -145,6 +145,7 @@ import secrets
 import string
 from ops.framework import EventBase, EventSource, ObjectEvents
 from ops.relation import ConsumerBase, ProviderBase, ConsumerEvents
+from ops.model import MaintenanceStatus, BlockedStatus, WaitingStatus
 
 LIBID = "fab458c53af54b0fa7ff696d71e243c1"
 LIBAPI = 0
@@ -153,10 +154,18 @@ logger = logging.getLogger(__name__)
 
 
 class DeferEventError(Exception):
-    def __init__(self, event, reason):
+    def __init__(self, reason, status_message):
         super().__init__()
-        self.event = event
         self.reason = reason
+        self.status_message = status_message
+
+
+class BlockedStatusError(Exception):
+    pass
+
+
+class WaitingStatusError(Exception):
+    pass
 
 
 def status_catcher(func):
@@ -165,8 +174,18 @@ def status_catcher(func):
         try:
             func(self, *args, **kwargs)
         except DeferEventError as e:
-            logger.info("Deferring event: %s because: %s", str(e.event), e.reason)
-            e.event.defer()
+            if len(args) >= 1 and isinstance(args[0], EventBase):
+                event = args[0]
+            else:
+                logger.error("Can not defer: No event")
+                raise
+            logger.info("Defering event: %s because: %s", event, e.reason)
+            self.unit.status = MaintenanceStatus(e.status_message)
+            event.defer()
+        except BlockedStatusError as e:
+            self.unit.status = BlockedStatus(str(e))
+        except WaitingStatusError as e:
+            self.unit.status = WaitingStatus(str(e))
 
     return new_func
 
