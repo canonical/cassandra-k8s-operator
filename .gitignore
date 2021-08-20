@@ -4,3 +4,4 @@ build
 venv
 .coverage
 *.jar
+.tox
