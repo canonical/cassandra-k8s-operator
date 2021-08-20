@@ -33,10 +33,10 @@ resources:
     description: Jar file for the Prometheus exporter for cassandra
 provides:
   database:
-    interface: cassandra
-requires:
+    interface: cql
   monitoring:
     interface: prometheus_scrape
+requires:
   grafana-dashboard:
     interface: grafana_dashboard
 peers:
