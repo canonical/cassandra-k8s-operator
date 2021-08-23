@@ -18,37 +18,29 @@ import contextlib
 import json
 import logging
 import os
-import sys
 import subprocess
+import sys
+from re import IGNORECASE, match
+
 import yaml
-
-from charms.cassandra_k8s.v0.cassandra import (
-    DeferEventError,
-    BlockedStatusError,
-    status_catcher,
-    generate_password,
-    CassandraProvider,
-)
-from charms.prometheus_k8s.v0.prometheus import PrometheusConsumer
-from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardConsumer
-
 from cassandra import ConsistencyLevel, InvalidRequest
 from cassandra.auth import PlainTextAuthProvider
-from cassandra.cluster import (
-    Cluster,
-    ExecutionProfile,
-    EXEC_PROFILE_DEFAULT,
-    NoHostAvailable,
-)
+from cassandra.cluster import EXEC_PROFILE_DEFAULT, Cluster, ExecutionProfile, NoHostAvailable
 from cassandra.policies import RoundRobinPolicy
 from cassandra.query import SimpleStatement
-
+from charms.cassandra_k8s.v0.cassandra import (
+    BlockedStatusError,
+    CassandraProvider,
+    DeferEventError,
+    generate_password,
+    status_catcher,
+)
+from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardConsumer
+from charms.prometheus_k8s.v0.prometheus import PrometheusConsumer
 from ops.charm import CharmBase
 from ops.main import main
 from ops.model import ActiveStatus, BlockedStatus, MaintenanceStatus, ModelError
 from ops.pebble import APIError, ConnectionError
-
-from re import IGNORECASE, match
 
 logger = logging.getLogger(__name__)
 
@@ -91,9 +83,7 @@ class CassandraOperatorCharm(CharmBase):
         self.framework.observe(self.on.cassandra_pebble_ready, self.on_pebble_ready)
         self.framework.observe(self.on.config_changed, self.on_config_changed)
         self.framework.observe(self.on.leader_elected, self.on_leader_elected)
-        self.framework.observe(
-            self.on["database"].relation_joined, self.on_database_joined
-        )
+        self.framework.observe(self.on["database"].relation_joined, self.on_database_joined)
         self.framework.observe(
             self.on["cassandra_peers"].relation_changed, self.on_cassandra_peers_changed
         )
@@ -105,9 +95,7 @@ class CassandraOperatorCharm(CharmBase):
         self.provider = CassandraProvider(
             charm=self, name="database", service="cassandra", version="3.11"
         )
-        self.framework.observe(
-            self.provider.on.data_changed, self.on_provider_data_changed
-        )
+        self.framework.observe(self.provider.on.data_changed, self.on_provider_data_changed)
 
         self.prometheus_consumer = PrometheusConsumer(
             charm=self,
@@ -116,18 +104,12 @@ class CassandraOperatorCharm(CharmBase):
             service_event=self.on.cassandra_pebble_ready,
             jobs=[
                 {
-                    "static_configs": [
-                        {"targets": ["*:{}".format(PROMETHEUS_EXPORTER_PORT)]}
-                    ],
+                    "static_configs": [{"targets": ["*:{}".format(PROMETHEUS_EXPORTER_PORT)]}],
                 }
             ],
         )
-        self.framework.observe(
-            self.on["monitoring"].relation_joined, self.on_monitoring_joined
-        )
-        self.framework.observe(
-            self.on["monitoring"].relation_broken, self.on_monitoring_broken
-        )
+        self.framework.observe(self.on["monitoring"].relation_joined, self.on_monitoring_joined)
+        self.framework.observe(self.on["monitoring"].relation_broken, self.on_monitoring_broken)
 
         self.dashboard_consumer = GrafanaDashboardConsumer(
             charm=self,
@@ -171,24 +153,16 @@ class CassandraOperatorCharm(CharmBase):
         if not self.unit.is_leader():
             return
 
-        if (
-            isinstance(self.unit.status, BlockedStatus)
-            and "dashboard" in self.unit.status.message
-        ):
+        if isinstance(self.unit.status, BlockedStatus) and "dashboard" in self.unit.status.message:
             self.unit.status = ActiveStatus()
 
-        dashboard_tmpl = open(
-            os.path.join(sys.path[0], "dashboard.json.tmpl"), "r"
-        ).read()
+        dashboard_tmpl = open(os.path.join(sys.path[0], "dashboard.json.tmpl"), "r").read()
 
         self.dashboard_consumer.add_dashboard(dashboard_tmpl)
 
     def on_dashboard_broken(self, event):
         self.dashboard_consumer.remove_dashboard()
-        if (
-            isinstance(self.unit.status, BlockedStatus)
-            and "dashboard" in self.unit.status.message
-        ):
+        if isinstance(self.unit.status, BlockedStatus) and "dashboard" in self.unit.status.message:
             self.unit.status = ActiveStatus()
 
     def on_dashboard_status_changed(self, event):
@@ -209,9 +183,7 @@ class CassandraOperatorCharm(CharmBase):
         if len(self.model.relations["monitoring"]) > 0:
             for endpoint in self.prometheus_consumer.endpoints:
                 address, port = endpoint.split(":")
-                self.prometheus_consumer.remove_endpoint(
-                    address=address, port=int(port)
-                )
+                self.prometheus_consumer.remove_endpoint(address=address, port=int(port))
             self._setup_monitoring()
 
     def _setup_monitoring(self):
@@ -244,9 +216,7 @@ class CassandraOperatorCharm(CharmBase):
                     self.model.resources.fetch("cassandra-prometheus-exporter"),
                     "rb",
                 ) as f:
-                    container.push(
-                        path=PROMETHEUS_EXPORTER_PATH, source=f, make_dirs=True
-                    )
+                    container.push(path=PROMETHEUS_EXPORTER_PATH, source=f, make_dirs=True)
 
             if restart_required:
                 restart(container)
@@ -266,9 +236,7 @@ class CassandraOperatorCharm(CharmBase):
                         break
                 container.remove_path(PROMETHEUS_EXPORTER_PATH)
             except ConnectionError:
-                logger.warning(
-                    "Could not disable monitoring. Could not connect to Pebble."
-                )
+                logger.warning("Could not disable monitoring. Could not connect to Pebble.")
 
     @status_catcher
     def on_cassandra_peers_changed(self, event):
@@ -306,14 +274,10 @@ class CassandraOperatorCharm(CharmBase):
         # Without this the query to create a user for some reason does nothing
         if self._num_units() != self._goal_units():
             self.unit.status = MaintenanceStatus("Waiting for units")
-            raise DeferEventError(
-                "Units not up in _root_password()", "Waiting for units"
-            )
+            raise DeferEventError("Units not up in _root_password()", "Waiting for units")
 
         # First create a new superuser
-        auth_provider = PlainTextAuthProvider(
-            username="cassandra", password="cassandra"
-        )
+        auth_provider = PlainTextAuthProvider(username="cassandra", password="cassandra")
         profile = ExecutionProfile(load_balancing_policy=RoundRobinPolicy())
         cluster = Cluster(
             [self._bind_address()],
@@ -334,14 +298,10 @@ class CassandraOperatorCharm(CharmBase):
                 )
             # Set system_auth replication here once we have pebble
             # See https://docs.datastax.com/en/cassandra-oss/3.0/cassandra/configuration/secureConfigNativeAuth.html
-            root_pass_secondary = peer_relation.data[self.app].get(
-                "root_password_secondary", None
-            )
+            root_pass_secondary = peer_relation.data[self.app].get("root_password_secondary", None)
             if root_pass_secondary is None:
                 root_pass_secondary = generate_password()
-                peer_relation.data[self.app][
-                    "root_password_secondary"
-                ] = root_pass_secondary
+                peer_relation.data[self.app]["root_password_secondary"] = root_pass_secondary
             query = SimpleStatement(
                 f"CREATE ROLE {ROOT_USER} WITH PASSWORD = '{root_pass_secondary}' AND SUPERUSER = true AND LOGIN = true",
                 consistency_level=ConsistencyLevel.QUORUM,
@@ -357,9 +317,7 @@ class CassandraOperatorCharm(CharmBase):
             cluster.shutdown()
 
         # Now disable the original superuser
-        auth_provider = PlainTextAuthProvider(
-            username=ROOT_USER, password=root_pass_secondary
-        )
+        auth_provider = PlainTextAuthProvider(username=ROOT_USER, password=root_pass_secondary)
         cluster = Cluster(
             [self._bind_address()],
             port=self.model.config["port"],
@@ -389,9 +347,7 @@ class CassandraOperatorCharm(CharmBase):
 
     @contextlib.contextmanager
     def database_connection(self):
-        auth_provider = PlainTextAuthProvider(
-            username=ROOT_USER, password=self._root_password()
-        )
+        auth_provider = PlainTextAuthProvider(username=ROOT_USER, password=self._root_password())
         profile = ExecutionProfile(load_balancing_policy=RoundRobinPolicy())
         cluster = Cluster(
             [self._bind_address()],
@@ -428,9 +384,7 @@ class CassandraOperatorCharm(CharmBase):
         heap_size = self.model.config["heap_size"]
 
         if match(r"^\d+[KMG]$", heap_size, IGNORECASE) is None:
-            raise BlockedStatusError(
-                f"Invalid Cassandra heap size setting: '{heap_size}'"
-            )
+            raise BlockedStatusError(f"Invalid Cassandra heap size setting: '{heap_size}'")
 
         if self._num_units() != self._goal_units():
             raise DeferEventError("Units not up in _configure()", "Waiting for units")
@@ -496,9 +450,7 @@ class CassandraOperatorCharm(CharmBase):
         for unit in rel.units:
             if (addr := rel.data[unit].get("peer_address")) is None:
                 self.unit.status = MaintenanceStatus("Waiting for peer addresses")
-                raise DeferEventError(
-                    "No peer ip address in _seeds()", "Waiting for units"
-                )
+                raise DeferEventError("No peer ip address in _seeds()", "Waiting for units")
             peers.append(addr)
         peers.sort()
         return ",".join(peers[:3])
@@ -511,9 +463,7 @@ class CassandraOperatorCharm(CharmBase):
     def _goal_units(self):
         # We need to shell out here as goal state is not yet implemented in operator
         # See https://github.com/canonical/operator/pull/453
-        goal_state = json.loads(
-            subprocess.check_output(["goal-state", "--format", "json"])
-        )
+        goal_state = json.loads(subprocess.check_output(["goal-state", "--format", "json"]))
         return len(goal_state["units"])
 
     def _bind_address(self, timeout=60):
@@ -528,9 +478,7 @@ class CassandraOperatorCharm(CharmBase):
     def _config_file(self):
         if (bind_address := self._bind_address()) is None:
             self.unit.status = MaintenanceStatus("Waiting for network address")
-            raise DeferEventError(
-                "No ip address in _config_file()", "Waiting for units"
-            )
+            raise DeferEventError("No ip address in _config_file()", "Waiting for units")
         conf = {
             "cluster_name": f"juju-cluster-{self.app.name}",
             "num_tokens": 256,
