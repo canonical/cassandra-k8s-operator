@@ -143,9 +143,10 @@ import json
 import logging
 import secrets
 import string
+
 from ops.framework import EventBase, EventSource, ObjectEvents
-from ops.relation import ConsumerBase, ProviderBase, ConsumerEvents
-from ops.model import MaintenanceStatus, BlockedStatus, WaitingStatus
+from ops.model import BlockedStatus, MaintenanceStatus, WaitingStatus
+from ops.relation import ConsumerBase, ConsumerEvents, ProviderBase
 
 LIBID = "fab458c53af54b0fa7ff696d71e243c1"
 LIBAPI = 0

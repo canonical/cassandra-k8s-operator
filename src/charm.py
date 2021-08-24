@@ -25,7 +25,12 @@ from re import IGNORECASE, match
 import yaml
 from cassandra import ConsistencyLevel, InvalidRequest
 from cassandra.auth import PlainTextAuthProvider
-from cassandra.cluster import EXEC_PROFILE_DEFAULT, Cluster, ExecutionProfile, NoHostAvailable
+from cassandra.cluster import (
+    EXEC_PROFILE_DEFAULT,
+    Cluster,
+    ExecutionProfile,
+    NoHostAvailable,
+)
 from cassandra.policies import RoundRobinPolicy
 from cassandra.query import SimpleStatement
 from charms.cassandra_k8s.v0.cassandra import (
