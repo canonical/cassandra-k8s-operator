@@ -14,15 +14,15 @@
 
 import json
 import unittest
-import yaml
+from unittest.mock import patch
 
 import cassandra.cluster
 import ops.model
 import ops.testing
-
+import yaml
 from ops.testing import Harness
+
 from charm import CassandraOperatorCharm
-from unittest.mock import patch
 
 
 class FakeConnection:
@@ -111,9 +111,7 @@ class TestCharm(unittest.TestCase):
             "9042",
         )
         self.assertEqual(
-            self.harness.get_relation_data(rel_id, self.harness.model.app.name)[
-                "address"
-            ],
+            self.harness.get_relation_data(rel_id, self.harness.model.app.name)["address"],
             "1.1.1.1",
         )
 
@@ -140,19 +138,15 @@ class TestCharm(unittest.TestCase):
 
     def test_root_password_is_set(self):
         rel = self.harness.charm.model.get_relation("cassandra-peers")
-        self.assertEqual(
-            rel.data[self.harness.charm.app].get("root_password", None), None
-        )
-        self.assertEqual(self.harness.charm._root_password(None), "password")
+        self.assertEqual(rel.data[self.harness.charm.app].get("root_password", None), None)
+        self.assertEqual(self.harness.charm._root_password(), "password")
 
     @patch.object(CassandraOperatorCharm, "_goal_units", new=lambda x: 2)
     def test_scale_up(self):
         rel_id = self.harness.charm.model.get_relation("cassandra-peers").id
         self.harness.add_relation_unit(rel_id, "cassandra/1")
-        self.harness.update_relation_data(
-            rel_id, "cassandra/1", {"peer_address": "1.1.1.1"}
-        )
-        seeds = self.harness.charm._seeds(None).split(",")
+        self.harness.update_relation_data(rel_id, "cassandra/1", {"peer_address": "1.1.1.1"})
+        seeds = self.harness.charm._seeds().split(",")
         assert len(seeds) == 2
 
     def test_config_file_is_set(self):
@@ -173,9 +167,7 @@ class TestCharm(unittest.TestCase):
             "bind-addresses": [
                 {
                     "interface-name": "eth0",
-                    "addresses": [
-                        {"hostname": "cassandra-tester-0", "value": bind_address}
-                    ],
+                    "addresses": [{"hostname": "cassandra-tester-0", "value": bind_address}],
                 }
             ]
         }
@@ -186,9 +178,7 @@ class TestCharm(unittest.TestCase):
         self.harness.update_relation_data(rel_id, "otherapp", {})
         self.assertEqual(
             json.loads(
-                self.harness.get_relation_data(rel_id, self.harness.model.app.name)[
-                    "scrape_jobs"
-                ]
+                self.harness.get_relation_data(rel_id, self.harness.model.app.name)["scrape_jobs"]
             )[0]["static_configs"][0]["targets"],
             ["*:9500"],
         )
@@ -196,9 +186,7 @@ class TestCharm(unittest.TestCase):
     @patch("ops.testing._TestingModelBackend.network_get")
     @patch("ops.testing._TestingPebbleClient.list_files")
     def test_heap_size_default(self, mock_net_get, mock_list_files):
-        cassandra_environment = (
-            self._start_cassandra_and_get_pebble_service().environment
-        )
+        cassandra_environment = self._start_cassandra_and_get_pebble_service().environment
 
         self.assertEqual(cassandra_environment["JVM_OPTS"], "-Xms6G -Xmx6G")
         self.assertEqual(self.harness.model.unit.status, ops.model.ActiveStatus())
@@ -208,9 +196,7 @@ class TestCharm(unittest.TestCase):
     def test_heap_size_config_success(self, mock_net_get, mock_list_files):
         self.harness.update_config({"heap_size": "1g"})
 
-        cassandra_environment = (
-            self._start_cassandra_and_get_pebble_service().environment
-        )
+        cassandra_environment = self._start_cassandra_and_get_pebble_service().environment
 
         self.assertEqual(cassandra_environment["JVM_OPTS"], "-Xms1g -Xmx1g")
         self.assertEqual(self.harness.model.unit.status, ops.model.ActiveStatus())

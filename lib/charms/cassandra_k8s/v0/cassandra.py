@@ -143,8 +143,10 @@ import json
 import logging
 import secrets
 import string
+
 from ops.framework import EventBase, EventSource, ObjectEvents
-from ops.relation import ConsumerBase, ProviderBase, ConsumerEvents
+from ops.model import BlockedStatus, MaintenanceStatus, WaitingStatus
+from ops.relation import ConsumerBase, ConsumerEvents, ProviderBase
 
 LIBID = "fab458c53af54b0fa7ff696d71e243c1"
 LIBAPI = 0
@@ -153,10 +155,18 @@ logger = logging.getLogger(__name__)
 
 
 class DeferEventError(Exception):
-    def __init__(self, event, reason):
+    def __init__(self, reason, status_message):
         super().__init__()
-        self.event = event
         self.reason = reason
+        self.status_message = status_message
+
+
+class BlockedStatusError(Exception):
+    pass
+
+
+class WaitingStatusError(Exception):
+    pass
 
 
 def status_catcher(func):
@@ -165,8 +175,18 @@ def status_catcher(func):
         try:
             func(self, *args, **kwargs)
         except DeferEventError as e:
-            logger.info("Deferring event: %s because: %s", str(e.event), e.reason)
-            e.event.defer()
+            if len(args) >= 1 and isinstance(args[0], EventBase):
+                event = args[0]
+            else:
+                logger.error("Can not defer: No event")
+                raise
+            logger.info("Defering event: %s because: %s", event, e.reason)
+            self.unit.status = MaintenanceStatus(e.status_message)
+            event.defer()
+        except BlockedStatusError as e:
+            self.unit.status = BlockedStatus(str(e))
+        except WaitingStatusError as e:
+            self.unit.status = WaitingStatus(str(e))
 
     return new_func
 
@@ -185,6 +205,7 @@ class NameLengthError(CassandraConsumerError):
 
 class DatabasesChangedEvent(EventBase):
     """Event emitted when the relation data has changed"""
+
     def __init__(self, handle, rel_id):
         super().__init__(handle)
         self.rel_id = rel_id
@@ -224,7 +245,7 @@ class CassandraConsumer(ConsumerBase):
         rel = self.framework.model.get_relation(self.relation_name, rel_id)
 
         relation_data = rel.data[rel.app]
-        creds_json = relation_data.get('credentials')
+        creds_json = relation_data.get("credentials")
         return json.loads(creds_json) if creds_json is not None else ()
 
     def databases(self, rel_id=None):
@@ -239,7 +260,7 @@ class CassandraConsumer(ConsumerBase):
         rel = self.framework.model.get_relation(self.relation_name, rel_id)
 
         relation_data = rel.data[rel.app]
-        dbs = relation_data.get('databases')
+        dbs = relation_data.get("databases")
         return json.loads(dbs) if dbs else []
 
     def new_database(self, rel_id=None, name_suffix=""):
@@ -254,7 +275,11 @@ class CassandraConsumer(ConsumerBase):
 
         if name_suffix:
             name_suffix = "_{}".format(name_suffix)
-        db_name = "juju_db_{}_{}{}".format(sanitize_name(self.charm.model.name), sanitize_name(self.charm.app.name), sanitize_name(name_suffix))
+        db_name = "juju_db_{}_{}{}".format(
+            sanitize_name(self.charm.model.name),
+            sanitize_name(self.charm.app.name),
+            sanitize_name(name_suffix),
+        )
         # Cassandra does not allow keyspace names longer than 48 characters
         if len(db_name) > 48:
             raise NameLengthError("Database name can not be more than 48 characters")
@@ -296,6 +321,7 @@ class CassandraConsumer(ConsumerBase):
 
 class DataChangedEvent(EventBase):
     """Event emitted when the relation data has changed"""
+
     def __init__(self, handle, rel_id, app_name):
         super().__init__(handle)
         self.rel_id = rel_id
@@ -326,18 +352,14 @@ class CassandraProvider(ProviderBase):
         if self.charm.unit.is_leader():
             for relation in self.charm.model.relations[relation_name]:
                 logger.info("Setting port data for relation %s", relation)
-                if str(port) != relation.data[self.charm.app].get(
-                    "port", None
-                ):
+                if str(port) != relation.data[self.charm.app].get("port", None):
                     relation.data[self.charm.app]["port"] = str(port)
 
     def update_address(self, relation_name, address):
         if self.charm.unit.is_leader():
             for relation in self.charm.model.relations[relation_name]:
                 logger.info("Setting address data for relation %s", relation)
-                if str(address) != relation.data[self.charm.app].get(
-                    "address", None
-                ):
+                if str(address) != relation.data[self.charm.app].get("address", None):
                     relation.data[self.charm.app]["address"] = str(address)
 
     def credentials(self, rel_id):
@@ -368,7 +390,7 @@ class CassandraProvider(ProviderBase):
 def sanitize_name(name):
     """Make a name safe for use as a keyspace name"""
     # For now just change dashes to underscores. Fix this more in the future
-    return name.replace('-', '_')
+    return name.replace("-", "_")
 
 
 def generate_password():
