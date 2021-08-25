@@ -1,0 +1,12 @@
+# Based on https://awesome-prometheus-alerts.grep.to/rules#rule-cassandra-1-4
+alert: CassandraCompactionExecutorBlockedTasks
+expr: sum by (juju_model,juju_model_uuid,juju_application,juju_unit) (cassandra_thread_pool_blocked_tasks{%%juju_topology%%,pool="CompactionExecutor"}) > 15
+for: 2m
+labels:
+  severity: warning
+annotations:
+  summary: Cassandra node {{ $labels.juju_model }}/{{ $labels.juju_unit }} has many compaction executor tasks blocked
+  description: >
+    {{ $value }} compaction executor tasks are blocked on the Cassandra node {{ $labels.juju_model }}/{{ $labels.juju_unit }}
+    Maximum value of blocked compaction executor tasks: 15
+    LABELS = {{ $labels }}

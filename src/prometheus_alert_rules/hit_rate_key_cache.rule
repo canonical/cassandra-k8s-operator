@@ -1,0 +1,12 @@
+# Based on https://awesome-prometheus-alerts.grep.to/rules#rule-cassandra-2-18
+alert: CassandraCacheHitRateKeyCache
+expr: sum by (juju_model,juju_model_uuid,juju_application,juju_unit) (cassandra_table_key_cache_hit_ratio{%%juju_topology%%}) < .85
+for: 2m
+labels:
+  severity: critical
+annotations:
+  summary: Low Cassandra node {{ $labels.juju_model }}/{{ $labels.juju_unit }} hit rate key cache
+  description: >
+    Key cache hit rate {{ $value }} is below .85 on the Cassandra node {{ $labels.juju_model }}/{{ $labels.juju_unit }}
+    Minimum expected hit rate key cache: .85
+    LABELS = {{ $labels }}

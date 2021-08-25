@@ -1,0 +1,12 @@
+# Based on https://awesome-prometheus-alerts.grep.to/rules#rule-cassandra-1-3
+alert: CassandraCommitlogPendingTasks
+expr: cassandra_commit_log_pending_tasks{%%juju_topology%%} > 15
+for: 2m
+labels:
+  severity: warning
+annotations:
+  summary: Cassandra node {{ $labels.juju_model }}/{{ $labels.juju_unit }} has many commitlog pending
+  description: >
+    {{ $value }} commitlog tasks are pending on the Cassandra node {{ $labels.juju_model }}/{{ $labels.juju_unit }}
+    Maximum value of pending commit tasks: 15
+    LABELS = {{ $labels }}

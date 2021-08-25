@@ -1,0 +1,12 @@
+# Based on https://awesome-prometheus-alerts.grep.to/rules#rule-cassandra-1-5
+alert: CassandraFlushWriterBlockedTasks
+expr: cassandra_thread_pool_blocked_tasks{%%juju_topology%%,pool="MemtableFlushWriter"} > 15
+for: 2m
+labels:
+  severity: warning
+annotations:
+  summary: Cassandra node {{ $labels.juju_model }}/{{ $labels.juju_unit }} has many blocked flush writer tasks
+  description: >
+    {{ $value }} flush writer tasks are blocked on the Cassandra node {{ $labels.juju_model }}/{{ $labels.juju_unit }}
+    Maximum value of blocked flush writer tasks: 15
+    LABELS = {{ $labels }}

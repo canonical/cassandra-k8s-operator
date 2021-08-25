@@ -1,0 +1,11 @@
+# Based on https://awesome-prometheus-alerts.grep.to/rules#rule-cassandra-1-12
+alert: CassandraClientRequestReadFailure
+expr: changes(cassandra_client_request_failures_total{%%juju_topology%%,operation="read"}[1m]) > 0
+for: 0m
+labels:
+  severity: critical
+annotations:
+  summary: Cassandra node {{ $labels.juju_model }}/{{ $labels.juju_unit }} is experiencing client request read failures
+  description: >
+    Cassandra Node {{ $labels.juju_model }} {{ $labels.juju_unit }} has experienced client request read failures over the last minute
+    LABELS = {{ $labels }}

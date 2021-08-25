@@ -1,0 +1,11 @@
+# Based on https://awesome-prometheus-alerts.grep.to/rules#rule-cassandra-1-8
+alert: CassandraTombstoneDump
+expr: avg(cassandra_table_tombstones_scanned{quantile="0.99"}) by (juju_model,juju_model_uuid,juju_application,juju_unit,keyspace) > 100
+for: 2m
+labels:
+  severity: critical
+annotations:
+  summary: Cassandra node {{ $labels.juju_model }}/{{ $labels.juju_unit }} has tombstone dump for keyspace {{ $labels.keyspace }}
+  description: >
+    Keyspace {{ $labels.keyspace }} is experiencing {{ $value }} tombstone dumps on the Cassandra node {{ $labels.juju_model }}/{{ $labels.juju_unit }}
+    LABELS = {{ $labels }}

@@ -1,0 +1,12 @@
+# Based on https://awesome-prometheus-alerts.grep.to/rules#rule-cassandra-1-2
+alert: CassandraManyCompactionTasksArePending
+expr: sum by (juju_model,juju_model_uuid,juju_application,juju_unit) (cassandra_table_estimated_pending_compactions{%%juju_topology%%}) > 100
+for: 0m
+labels:
+  severity: warning
+annotations:
+  summary: Cassandra node {{ $labels.juju_model }}/{{ $labels.juju_unit }} has many pending compaction tasks
+  description: >
+    {{ $value }} compaction tasks are pending on the Cassandra node {{ $labels.juju_model }}/{{ $labels.juju_unit }}
+    Maximum value of pending compaction tasks: 100
+    LABELS = {{ $labels }}
