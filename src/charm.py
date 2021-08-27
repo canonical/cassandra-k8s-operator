@@ -305,7 +305,7 @@ class CassandraOperatorCharm(CharmBase):
                     "Waiting for Database",
                 )
             # Set system_auth replication here once we have pebble
-            # See https://docs.datastax.com/en/cassandra-oss/3.0/cassandra/configuration/secureConfigNativeAuth.html # noqa
+            # See https://docs.datastax.com/en/cassandra-oss/3.0/cassandra/configuration/secureConfigNativeAuth.html # noqa: W505
             root_pass_secondary = peer_relation.data[self.app].get("root_password_secondary", None)
             if root_pass_secondary is None:
                 root_pass_secondary = generate_password()
