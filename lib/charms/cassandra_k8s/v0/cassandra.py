@@ -145,7 +145,8 @@ import secrets
 import string
 from typing import Optional
 
-from ops.framework import CharmBase, EventBase, EventSource, ObjectEvents
+from ops.charm import CharmBase
+from ops.framework import EventBase, EventSource, ObjectEvents
 from ops.model import BlockedStatus, MaintenanceStatus, Relation, WaitingStatus
 from ops.relation import ConsumerBase, ConsumerEvents, ProviderBase
 
