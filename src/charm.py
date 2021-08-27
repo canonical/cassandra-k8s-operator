@@ -21,15 +21,17 @@ import os
 import subprocess
 import sys
 from re import IGNORECASE, match
+from typing import Optional
 
 import yaml
-from cassandra import ConsistencyLevel, InvalidRequest
+from cassandra import ConsistencyLevel, InvalidRequest  # type: ignore
 from cassandra.auth import PlainTextAuthProvider
 from cassandra.cluster import (
     EXEC_PROFILE_DEFAULT,
     Cluster,
     ExecutionProfile,
     NoHostAvailable,
+    Session,
 )
 from cassandra.policies import RoundRobinPolicy
 from cassandra.query import SimpleStatement
@@ -43,6 +45,7 @@ from charms.cassandra_k8s.v0.cassandra import (
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardConsumer
 from charms.prometheus_k8s.v0.prometheus import PrometheusConsumer
 from ops.charm import CharmBase
+from ops.framework import EventBase
 from ops.main import main
 from ops.model import ActiveStatus, BlockedStatus, MaintenanceStatus, ModelError
 from ops.pebble import APIError, ConnectionError
@@ -133,7 +136,7 @@ class CassandraOperatorCharm(CharmBase):
         )
 
     @status_catcher
-    def on_pebble_ready(self, event):
+    def on_pebble_ready(self, event: EventBase) -> None:
         self._configure()
         container = event.workload
         if len(self.model.relations["monitoring"]) > 0:
@@ -142,19 +145,19 @@ class CassandraOperatorCharm(CharmBase):
         self.provider.update_address("database", self._bind_address())
 
     @status_catcher
-    def on_config_changed(self, event):
+    def on_config_changed(self, _) -> None:
         self._configure()
         self.provider.update_port("database", self.model.config["port"])
 
-    def on_leader_elected(self, event):
+    def on_leader_elected(self, _):
         self.provider.update_address("database", self._bind_address())
 
-    def on_database_joined(self, event):
+    def on_database_joined(self, _):
         self.provider.update_port("database", self.model.config["port"])
         self.provider.update_address("database", self._bind_address())
 
     @status_catcher
-    def on_dashboard_joined(self, event):
+    def on_dashboard_joined(self, _) -> None:
         if not self.unit.is_leader():
             return
 
@@ -165,12 +168,12 @@ class CassandraOperatorCharm(CharmBase):
 
         self.dashboard_consumer.add_dashboard(dashboard_tmpl)
 
-    def on_dashboard_broken(self, event):
+    def on_dashboard_broken(self, _) -> None:
         self.dashboard_consumer.remove_dashboard()
         if isinstance(self.unit.status, BlockedStatus) and "dashboard" in self.unit.status.message:
             self.unit.status = ActiveStatus()
 
-    def on_dashboard_status_changed(self, event):
+    def on_dashboard_status_changed(self, event: EventBase) -> None:
         if event.valid:
             self._dashboard_valid = True
             self.unit.status = ActiveStatus()
@@ -179,10 +182,10 @@ class CassandraOperatorCharm(CharmBase):
             self.unit.status = BlockedStatus(event.error_message)
 
     @status_catcher
-    def on_monitoring_joined(self, event):
+    def on_monitoring_joined(self, _) -> None:
         self._setup_monitoring()
 
-    def _reset_monitoring(self):
+    def _reset_monitoring(self) -> None:
         if not self.unit.is_leader():
             return
         if len(self.model.relations["monitoring"]) > 0:
@@ -191,7 +194,7 @@ class CassandraOperatorCharm(CharmBase):
                 self.prometheus_consumer.remove_endpoint(address=address, port=int(port))
             self._setup_monitoring()
 
-    def _setup_monitoring(self):
+    def _setup_monitoring(self) -> None:
         # Turn on metrics exporting. This should be on on ALL NODES, since it does not
         # export per node cluster metrics with the default JMX exporter
         if len(self.model.relations["monitoring"]) > 0:
@@ -227,7 +230,7 @@ class CassandraOperatorCharm(CharmBase):
                 restart(container)
 
     @status_catcher
-    def on_monitoring_broken(self, event):
+    def on_monitoring_broken(self, _) -> None:
         # If there are no monitoring relations, disable metrics
         if len(self.model.relations["monitoring"]) == 0:
             try:
@@ -244,15 +247,15 @@ class CassandraOperatorCharm(CharmBase):
                 logger.warning("Could not disable monitoring. Could not connect to Pebble.")
 
     @status_catcher
-    def on_cassandra_peers_changed(self, event):
+    def on_cassandra_peers_changed(self, _) -> None:
         self._configure()
 
     @status_catcher
-    def on_cassandra_peers_departed(self, event):
+    def on_cassandra_peers_departed(self, _) -> None:
         self._configure()
 
     @status_catcher
-    def on_provider_data_changed(self, event):
+    def on_provider_data_changed(self, event: EventBase) -> None:
         if not self.unit.is_leader():
             return
         creds = self.provider.credentials(event.rel_id)
@@ -271,7 +274,7 @@ class CassandraOperatorCharm(CharmBase):
                 dbs.append(db)
         self.provider.set_databases(event.rel_id, dbs)
 
-    def _root_password(self):
+    def _root_password(self) -> str:
         peer_relation = self.model.get_relation("cassandra-peers")
         if root_pass := peer_relation.data[self.app].get("root_password", None):
             return root_pass
@@ -351,7 +354,7 @@ class CassandraOperatorCharm(CharmBase):
         return root_pass_secondary
 
     @contextlib.contextmanager
-    def database_connection(self):
+    def database_connection(self) -> Session:
         auth_provider = PlainTextAuthProvider(username=ROOT_USER, password=self._root_password())
         profile = ExecutionProfile(load_balancing_policy=RoundRobinPolicy())
         cluster = Cluster(
@@ -371,13 +374,13 @@ class CassandraOperatorCharm(CharmBase):
         finally:
             cluster.shutdown
 
-    def _create_user(self, user, password):
+    def _create_user(self, user: str, password: str) -> None:
         with self.database_connection() as conn:
             conn.execute(
                 f"CREATE ROLE IF NOT EXISTS '{user}' WITH PASSWORD = '{password}' AND LOGIN = true"
             )
 
-    def _create_db(self, db_name, user):
+    def _create_db(self, db_name: str, user: str) -> None:
         with self.database_connection() as conn:
             # Review replication strategy
             conn.execute(
@@ -385,7 +388,7 @@ class CassandraOperatorCharm(CharmBase):
             )
             conn.execute(f"GRANT ALL PERMISSIONS ON KEYSPACE {db_name} to '{user}'")
 
-    def _configure(self):
+    def _configure(self) -> None:
         heap_size = self.model.config["heap_size"]
 
         if match(r"^\d+[KMG]$", heap_size, IGNORECASE) is None:
@@ -426,7 +429,7 @@ class CassandraOperatorCharm(CharmBase):
         self.unit.status = ActiveStatus()
         logger.debug("Pod spec set successfully.")
 
-    def _build_layer(self):
+    def _build_layer(self) -> dict:
         heap_size = self.model.config["heap_size"]
         layer = {
             "summary": "Cassandra Layer",
@@ -446,7 +449,7 @@ class CassandraOperatorCharm(CharmBase):
         }
         return layer
 
-    def _seeds(self):
+    def _seeds(self) -> str:
         if (bind_address := self._bind_address()) is None:
             self.unit.status = MaintenanceStatus("Waiting for network address")
             raise DeferEventError("No ip address in _seeds()", "Waiting for units")
@@ -460,18 +463,18 @@ class CassandraOperatorCharm(CharmBase):
         peers.sort()
         return ",".join(peers[:3])
 
-    def _num_units(self):
+    def _num_units(self) -> int:
         relation = self.model.get_relation("cassandra-peers")
         # The relation does not list ourself as a unit so we must add 1
         return len(relation.units) + 1 if relation is not None else 1
 
-    def _goal_units(self):
+    def _goal_units(self) -> int:
         # We need to shell out here as goal state is not yet implemented in operator
         # See https://github.com/canonical/operator/pull/453
         goal_state = json.loads(subprocess.check_output(["goal-state", "--format", "json"]))
         return len(goal_state["units"])
 
-    def _bind_address(self, timeout=60):
+    def _bind_address(self, timeout=60) -> Optional[str]:
         try:
             return str(self.model.get_binding("cassandra-peers").network.bind_address)
         except TypeError as e:
@@ -480,7 +483,7 @@ class CassandraOperatorCharm(CharmBase):
             else:
                 raise
 
-    def _config_file(self):
+    def _config_file(self) -> str:
         if (bind_address := self._bind_address()) is None:
             self.unit.status = MaintenanceStatus("Waiting for network address")
             raise DeferEventError("No ip address in _config_file()", "Waiting for units")

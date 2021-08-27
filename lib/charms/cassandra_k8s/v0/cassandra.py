@@ -143,9 +143,10 @@ import json
 import logging
 import secrets
 import string
+from typing import Optional
 
-from ops.framework import EventBase, EventSource, ObjectEvents
-from ops.model import BlockedStatus, MaintenanceStatus, WaitingStatus
+from ops.framework import CharmBase, EventBase, EventSource, ObjectEvents
+from ops.model import BlockedStatus, MaintenanceStatus, Relation, WaitingStatus
 from ops.relation import ConsumerBase, ConsumerEvents, ProviderBase
 
 LIBID = "fab458c53af54b0fa7ff696d71e243c1"
@@ -155,7 +156,7 @@ logger = logging.getLogger(__name__)
 
 
 class DeferEventError(Exception):
-    def __init__(self, reason, status_message):
+    def __init__(self, reason: str, status_message: str):
         super().__init__()
         self.reason = reason
         self.status_message = status_message
@@ -206,7 +207,7 @@ class NameLengthError(CassandraConsumerError):
 class DatabasesChangedEvent(EventBase):
     """Event emitted when the relation data has changed"""
 
-    def __init__(self, handle, rel_id):
+    def __init__(self, handle, rel_id: int):
         super().__init__(handle)
         self.rel_id = rel_id
 
@@ -224,17 +225,17 @@ class CassandraConsumerEvents(ConsumerEvents):
 class CassandraConsumer(ConsumerBase):
     on = CassandraConsumerEvents()
 
-    def __init__(self, charm, name, consumes, multi=False):
+    def __init__(self, charm: CharmBase, name: str, consumes: dict, multi: bool = False):
         super().__init__(charm, name, consumes, multi)
         self.charm = charm
         self.relation_name = name
         events = self.charm.on[name]
         self.framework.observe(events.relation_changed, self.on_relation_changed)
 
-    def on_relation_changed(self, event):
+    def on_relation_changed(self, event: EventBase) -> None:
         self.on.databases_changed.emit(rel_id=event.relation.id)
 
-    def credentials(self, rel_id=None):
+    def credentials(self, rel_id: Optional[int] = None) -> tuple:
         """
         Returns a dict of credentials
         {"username": <username>, "password": <password>}
@@ -248,7 +249,7 @@ class CassandraConsumer(ConsumerBase):
         creds_json = relation_data.get("credentials")
         return json.loads(creds_json) if creds_json is not None else ()
 
-    def databases(self, rel_id=None):
+    def databases(self, rel_id: Optional[int] = None) -> list:
         """List of currently available databases.
 
         Args:
@@ -263,7 +264,7 @@ class CassandraConsumer(ConsumerBase):
         dbs = relation_data.get("databases")
         return json.loads(dbs) if dbs else []
 
-    def new_database(self, rel_id=None, name_suffix=""):
+    def new_database(self, rel_id: Optional[int] = None, name_suffix: str = "") -> None:
         """Request creation of an additional database.
 
         Args:
@@ -289,7 +290,7 @@ class CassandraConsumer(ConsumerBase):
             raise NameDuplicateError("Database names are not unique")
         self._set_requested_databases(rel, dbs)
 
-    def port(self, rel_id=None):
+    def port(self, rel_id: Optional[int] = None) -> str:
         """Return the port which the cassandra instance is listening on.
 
         Args:
@@ -299,7 +300,7 @@ class CassandraConsumer(ConsumerBase):
 
         return rel.data[rel.app].get("port")
 
-    def address(self, rel_id=None):
+    def address(self, rel_id: Optional[int] = None) -> str:
         """Return the address which the cassandra instance is listening on.
 
         Args:
@@ -309,12 +310,12 @@ class CassandraConsumer(ConsumerBase):
 
         return rel.data[rel.app].get("address")
 
-    def _requested_databases(self, relation):
+    def _requested_databases(self, relation: Relation) -> list:
         """Return the list of requested databases."""
         dbs_json = relation.data[self.charm.app].get("requested_databases", "[]")
         return json.loads(dbs_json)
 
-    def _set_requested_databases(self, relation, requested_databases):
+    def _set_requested_databases(self, relation: Relation, requested_databases: list) -> None:
         """Set the list of requested databases."""
         relation.data[self.charm.app]["requested_databases"] = json.dumps(requested_databases)
 
@@ -322,7 +323,7 @@ class CassandraConsumer(ConsumerBase):
 class DataChangedEvent(EventBase):
     """Event emitted when the relation data has changed"""
 
-    def __init__(self, handle, rel_id, app_name):
+    def __init__(self, handle, rel_id: int, app_name: str):
         super().__init__(handle)
         self.rel_id = rel_id
         self.app_name = app_name
@@ -342,57 +343,57 @@ class CassandraProviderEvents(ObjectEvents):
 class CassandraProvider(ProviderBase):
     on = CassandraProviderEvents()
 
-    def __init__(self, charm, name, service, version=None):
+    def __init__(self, charm: CharmBase, name: str, service: str, version: str = None):
         super().__init__(charm, name, service, version)
         self.charm = charm
         events = self.charm.on[name]
         self.framework.observe(events.relation_changed, self.on_relation_changed)
 
-    def update_port(self, relation_name, port):
+    def update_port(self, relation_name: str, port: int) -> None:
         if self.charm.unit.is_leader():
             for relation in self.charm.model.relations[relation_name]:
                 logger.info("Setting port data for relation %s", relation)
                 if str(port) != relation.data[self.charm.app].get("port", None):
                     relation.data[self.charm.app]["port"] = str(port)
 
-    def update_address(self, relation_name, address):
+    def update_address(self, relation_name: str, address: str) -> None:
         if self.charm.unit.is_leader():
             for relation in self.charm.model.relations[relation_name]:
                 logger.info("Setting address data for relation %s", relation)
                 if str(address) != relation.data[self.charm.app].get("address", None):
                     relation.data[self.charm.app]["address"] = str(address)
 
-    def credentials(self, rel_id):
+    def credentials(self, rel_id: int) -> tuple:
         rel = self.framework.model.get_relation(self.name, rel_id)
         creds_json = rel.data[self.charm.app].get("credentials", "[]")
         return json.loads(creds_json)
 
-    def set_credentials(self, rel_id, creds):
+    def set_credentials(self, rel_id: int, creds) -> None:
         rel = self.framework.model.get_relation(self.name, rel_id)
         rel.data[self.charm.app]["credentials"] = json.dumps(creds)
 
-    def requested_databases(self, rel_id):
+    def requested_databases(self, rel_id: int) -> list:
         rel = self.framework.model.get_relation(self.name, rel_id)
         return json.loads(rel.data[rel.app].get("requested_databases", "[]"))
 
-    def databases(self, rel_id):
+    def databases(self, rel_id: int) -> list:
         rel = self.framework.model.get_relation(self.name, rel_id)
         return json.loads(rel.data[self.charm.app].get("databases") or "[]")
 
-    def set_databases(self, rel_id, dbs):
+    def set_databases(self, rel_id: int, dbs: list) -> None:
         rel = self.framework.model.get_relation(self.name, rel_id)
         rel.data[self.charm.app]["databases"] = json.dumps(dbs)
 
-    def on_relation_changed(self, event):
+    def on_relation_changed(self, event: EventBase) -> None:
         self.on.data_changed.emit(event.relation.id, event.app.name)
 
 
-def sanitize_name(name):
+def sanitize_name(name: str) -> str:
     """Make a name safe for use as a keyspace name"""
     # For now just change dashes to underscores. Fix this more in the future
     return name.replace("-", "_")
 
 
-def generate_password():
+def generate_password() -> str:
     alphabet = string.ascii_letters + string.digits
     return "".join(secrets.choice(alphabet) for i in range(20))
