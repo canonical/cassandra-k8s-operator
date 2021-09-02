@@ -14,7 +14,6 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-import contextlib
 import json
 import logging
 import os
@@ -25,15 +24,6 @@ from typing import Optional
 
 import yaml
 from cassandra import ConsistencyLevel, InvalidRequest  # type: ignore
-from cassandra.auth import PlainTextAuthProvider
-from cassandra.cluster import (
-    EXEC_PROFILE_DEFAULT,
-    Cluster,
-    ExecutionProfile,
-    NoHostAvailable,
-    Session,
-)
-from cassandra.policies import RoundRobinPolicy
 from cassandra.query import SimpleStatement
 from charms.cassandra_k8s.v0.cassandra import (
     BlockedStatusError,
@@ -50,10 +40,11 @@ from ops.main import main
 from ops.model import ActiveStatus, BlockedStatus, MaintenanceStatus, ModelError
 from ops.pebble import APIError, ConnectionError
 
+from cassandra_server import Cassandra
+
 logger = logging.getLogger(__name__)
 
 
-CQL_PROTOCOL_VERSION = 4
 ROOT_USER = "charm_root"
 CONFIG_PATH = "/etc/cassandra/cassandra.yaml"
 ENV_PATH = "/etc/cassandra/cassandra-env.sh"
@@ -134,6 +125,7 @@ class CassandraOperatorCharm(CharmBase):
             self.dashboard_consumer.on.dashboard_status_changed,
             self.on_dashboard_status_changed,
         )
+        self.cassandra = Cassandra(charm=self)
 
     @status_catcher
     def on_pebble_ready(self, event: EventBase) -> None:
@@ -285,103 +277,48 @@ class CassandraOperatorCharm(CharmBase):
             raise DeferEventError("Units not up in _root_password()", "Waiting for units")
 
         # First create a new superuser
-        auth_provider = PlainTextAuthProvider(username="cassandra", password="cassandra")
-        profile = ExecutionProfile(load_balancing_policy=RoundRobinPolicy())
-        cluster = Cluster(
-            [self._bind_address()],
-            port=self.model.config["port"],
-            auth_provider=auth_provider,
-            execution_profiles={EXEC_PROFILE_DEFAULT: profile},
-            protocol_version=CQL_PROTOCOL_VERSION,
-        )
         try:
-            try:
-                session = cluster.connect()
-            except NoHostAvailable as e:
-                logger.info("Caught exception %s:%s", type(e), e)
-                self.unit.status = MaintenanceStatus("Cassandra Starting")
-                raise DeferEventError(
-                    "Can't connect to database in _root_password()",
-                    "Waiting for Database",
+            with self.cassandra.connect(username="cassandra", password="cassandra") as session:
+                # Set system_auth replication here once we have one shot commands in pebble
+                # See https://docs.datastax.com/en/cassandra-oss/3.0/cassandra/configuration/secureConfigNativeAuth.html # noqa: W505
+                root_pass_secondary = peer_relation.data[self.app].get(
+                    "root_password_secondary", None
                 )
-            # Set system_auth replication here once we have pebble
-            # See https://docs.datastax.com/en/cassandra-oss/3.0/cassandra/configuration/secureConfigNativeAuth.html # noqa: W505
-            root_pass_secondary = peer_relation.data[self.app].get("root_password_secondary", None)
-            if root_pass_secondary is None:
-                root_pass_secondary = generate_password()
-                peer_relation.data[self.app]["root_password_secondary"] = root_pass_secondary
-            query = SimpleStatement(
-                f"CREATE ROLE {ROOT_USER} WITH PASSWORD = '{root_pass_secondary}' AND SUPERUSER = true AND LOGIN = true",
-                consistency_level=ConsistencyLevel.QUORUM,
-            )
-            session.execute(query)
+                if root_pass_secondary is None:
+                    root_pass_secondary = generate_password()
+                    peer_relation.data[self.app]["root_password_secondary"] = root_pass_secondary
+                query = SimpleStatement(
+                    f"CREATE ROLE {ROOT_USER} WITH PASSWORD = '{root_pass_secondary}' AND SUPERUSER = true AND LOGIN = true",
+                    consistency_level=ConsistencyLevel.QUORUM,
+                )
+                session.execute(query)
         except InvalidRequest as e:
             if (
                 not str(e)
                 == 'Error from server: code=2200 [Invalid query] message="charm_root already exists"'
             ):
                 raise
-        finally:
-            cluster.shutdown()
 
         # Now disable the original superuser
-        auth_provider = PlainTextAuthProvider(username=ROOT_USER, password=root_pass_secondary)
-        cluster = Cluster(
-            [self._bind_address()],
-            port=self.model.config["port"],
-            auth_provider=auth_provider,
-            execution_profiles={EXEC_PROFILE_DEFAULT: profile},
-            protocol_version=CQL_PROTOCOL_VERSION,
-        )
-        try:
-            try:
-                session = cluster.connect()
-            except NoHostAvailable as e:
-                logger.info("Caught exception %s:%s", type(e), e)
-                self.unit.status = MaintenanceStatus("Cassandra Starting")
-                raise DeferEventError(
-                    "Can't connect to database in _root_password()",
-                    "Waiting for Database",
-                )
+        with self.cassandra.connect(
+            username="charm_root", password=root_pass_secondary
+        ) as session:
             random_password = generate_password()
             session.execute(
                 "ALTER ROLE cassandra WITH PASSWORD=%s AND SUPERUSER=false",
                 (random_password,),
             )
-        finally:
-            cluster.shutdown()
         peer_relation.data[self.app]["root_password"] = root_pass_secondary
         return root_pass_secondary
 
-    @contextlib.contextmanager
-    def database_connection(self) -> Session:
-        auth_provider = PlainTextAuthProvider(username=ROOT_USER, password=self._root_password())
-        profile = ExecutionProfile(load_balancing_policy=RoundRobinPolicy())
-        cluster = Cluster(
-            [self._bind_address()],
-            port=self.model.config["port"],
-            auth_provider=auth_provider,
-            execution_profiles={EXEC_PROFILE_DEFAULT: profile},
-            protocol_version=CQL_PROTOCOL_VERSION,
-        )
-        try:
-            session = cluster.connect()
-            yield session
-        except NoHostAvailable as e:
-            logger.info("Caught exception %s:%s", type(e), e)
-            self.unit.status = MaintenanceStatus("Cassandra Starting")
-            raise DeferEventError("Can't connect to database", "Waiting for Database")
-        finally:
-            cluster.shutdown
-
     def _create_user(self, user: str, password: str) -> None:
-        with self.database_connection() as conn:
+        with self.cassandra.connect() as conn:
             conn.execute(
                 f"CREATE ROLE IF NOT EXISTS '{user}' WITH PASSWORD = '{password}' AND LOGIN = true"
             )
 
     def _create_db(self, db_name: str, user: str) -> None:
-        with self.database_connection() as conn:
+        with self.cassandra.connect() as conn:
             # Review replication strategy
             conn.execute(
                 f"CREATE KEYSPACE IF NOT EXISTS {db_name} WITH REPLICATION = {{ 'class' : 'SimpleStrategy', 'replication_factor' : {self._goal_units()} }}"
