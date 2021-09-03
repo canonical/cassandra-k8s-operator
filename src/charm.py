@@ -254,7 +254,7 @@ class CassandraOperatorCharm(CharmBase):
         if creds == []:
             username = f"juju-user-{event.app_name}"
             password = generate_password()
-            self._create_user(username, password)
+            self.cassandra.create_user(username, password)
             creds = [username, password]
             self.provider.set_credentials(event.rel_id, creds)
 
@@ -262,7 +262,7 @@ class CassandraOperatorCharm(CharmBase):
         dbs = self.provider.databases(event.rel_id)
         for db in requested_dbs:
             if db not in dbs:
-                self._create_db(db, creds[0])
+                self.cassandra.create_db(db, creds[0], self._goal_units())
                 dbs.append(db)
         self.provider.set_databases(event.rel_id, dbs)
 
@@ -310,20 +310,6 @@ class CassandraOperatorCharm(CharmBase):
             )
         peer_relation.data[self.app]["root_password"] = root_pass_secondary
         return root_pass_secondary
-
-    def _create_user(self, user: str, password: str) -> None:
-        with self.cassandra.connect() as conn:
-            conn.execute(
-                f"CREATE ROLE IF NOT EXISTS '{user}' WITH PASSWORD = '{password}' AND LOGIN = true"
-            )
-
-    def _create_db(self, db_name: str, user: str) -> None:
-        with self.cassandra.connect() as conn:
-            # Review replication strategy
-            conn.execute(
-                f"CREATE KEYSPACE IF NOT EXISTS {db_name} WITH REPLICATION = {{ 'class' : 'SimpleStrategy', 'replication_factor' : {self._goal_units()} }}"
-            )
-            conn.execute(f"GRANT ALL PERMISSIONS ON KEYSPACE {db_name} to '{user}'")
 
     def _configure(self) -> None:
         heap_size = self.model.config["heap_size"]

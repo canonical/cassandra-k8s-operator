@@ -68,3 +68,31 @@ class Cassandra:
             raise DeferEventError("Can't connect to database", "Waiting for Database")
         finally:
             cluster.shutdown
+
+    def create_user(self, username: str, password: str) -> None:
+        """Create a new Cassandra user
+
+        Args:
+            username: The username of the new user
+            password: The password of the new user
+
+        """
+        with self.connect() as conn:
+            conn.execute(
+                f"CREATE ROLE IF NOT EXISTS '{username}' WITH PASSWORD = '{password}' AND LOGIN = true"
+            )
+
+    def create_db(self, db_name: str, user: str, replication: int) -> None:
+        """Create a new keyspace and grant all permissions to user
+
+        Args:
+            db_name: Name of the new keyspace
+            user: User which should have access to the keyspace
+            replication: The replication factor for the keyspace
+        """
+        with self.connect() as conn:
+            # TODO: Review replication strategy
+            conn.execute(
+                f"CREATE KEYSPACE IF NOT EXISTS {db_name} WITH REPLICATION = {{ 'class' : 'SimpleStrategy', 'replication_factor' : {replication} }}"
+            )
+            conn.execute(f"GRANT ALL PERMISSIONS ON KEYSPACE {db_name} to '{user}'")
