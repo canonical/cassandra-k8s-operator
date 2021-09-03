@@ -80,7 +80,6 @@ class ConfigFile:
         return self.content
 
 
-@patch("charm.generate_password", new=lambda: "password")
 @patch.object(cassandra.cluster.Cluster, "connect", new=FakeConnection())
 @patch.object(CassandraOperatorCharm, "_goal_units", new=lambda x: 1)
 @patch.object(CassandraOperatorCharm, "_bind_address", new=lambda x: "1.1.1.1")
@@ -139,7 +138,7 @@ class TestCharm(unittest.TestCase):
     def test_root_password_is_set(self):
         rel = self.harness.charm.model.get_relation("cassandra-peers")
         self.assertEqual(rel.data[self.harness.charm.app].get("root_password", None), None)
-        self.assertEqual(self.harness.charm._root_password(), "password")
+        self.assertEqual(bool(self.harness.charm.cassandra.root_password()), True)
 
     @patch.object(CassandraOperatorCharm, "_goal_units", new=lambda x: 2)
     def test_scale_up(self):

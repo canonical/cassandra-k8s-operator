@@ -1,7 +1,10 @@
 import contextlib
 import logging
-from typing import Optional
+import secrets
+import string
+from typing import List, Optional
 
+from cassandra import ConsistencyLevel, InvalidRequest
 from cassandra.auth import PlainTextAuthProvider
 from cassandra.cluster import (
     EXEC_PROFILE_DEFAULT,
@@ -11,12 +14,14 @@ from cassandra.cluster import (
     Session,
 )
 from cassandra.policies import RoundRobinPolicy
+from cassandra.query import SimpleStatement
 from charms.cassandra_k8s.v0.cassandra import DeferEventError
 from ops.charm import CharmBase
 from ops.model import MaintenanceStatus
 
 CQL_PORT = 9042
 CQL_PROTOCOL_VERSION = 4
+ROOT_USER = "charm_root"
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +43,7 @@ class Cassandra:
         self.charm = charm
 
     @contextlib.contextmanager
-    def connect(self, username: str = "charm_root", password: Optional[str] = None) -> Session:
+    def connect(self, username: str = ROOT_USER, password: Optional[str] = None) -> Session:
         """Context manager to connect to the Cassandra cluster and return an active session
 
         Args:
@@ -49,7 +54,7 @@ class Cassandra:
             A cassandra session
         """
         if password is None:
-            password = self.charm._root_password()
+            password = self.root_password()
         auth_provider = PlainTextAuthProvider(username=username, password=password)
         profile = ExecutionProfile(load_balancing_policy=RoundRobinPolicy())
         cluster = Cluster(
@@ -69,18 +74,22 @@ class Cassandra:
         finally:
             cluster.shutdown
 
-    def create_user(self, username: str, password: str) -> None:
+    def create_user(self, username: str) -> List[str]:
         """Create a new Cassandra user
 
         Args:
             username: The username of the new user
-            password: The password of the new user
+
+        Returns:
+            A list of the form [username, password]
 
         """
+        password = self._generate_password()
         with self.connect() as conn:
             conn.execute(
                 f"CREATE ROLE IF NOT EXISTS '{username}' WITH PASSWORD = '{password}' AND LOGIN = true"
             )
+        return [username, password]
 
     def create_db(self, db_name: str, user: str, replication: int) -> None:
         """Create a new keyspace and grant all permissions to user
@@ -96,3 +105,63 @@ class Cassandra:
                 f"CREATE KEYSPACE IF NOT EXISTS {db_name} WITH REPLICATION = {{ 'class' : 'SimpleStrategy', 'replication_factor' : {replication} }}"
             )
             conn.execute(f"GRANT ALL PERMISSIONS ON KEYSPACE {db_name} to '{user}'")
+
+    def root_password(self) -> str:
+        """If the root password is already set, return it. If the root password is not already
+        set, generate a new one.
+
+        Returns:
+            The root password
+        """
+        peer_relation = self.charm.model.get_relation("cassandra-peers")
+        if root_pass := peer_relation.data[self.charm.app].get("root_password", None):
+            return root_pass
+
+        # Without this the query to create a user for some reason does nothing
+        if self.charm._num_units() != self.charm._goal_units():
+            raise DeferEventError("Units not up in root_password()", "Waiting for units")
+
+        # First create a new superuser
+        try:
+            with self.connect(username="cassandra", password="cassandra") as session:
+                # Set system_auth replication here once we have one shot commands in pebble
+                # See https://docs.datastax.com/en/cassandra-oss/3.0/cassandra/configuration/secureConfigNativeAuth.html # noqa: W505
+                root_pass_secondary = peer_relation.data[self.charm.app].get(
+                    "root_password_secondary", None
+                )
+                if root_pass_secondary is None:
+                    root_pass_secondary = self._generate_password()
+                    peer_relation.data[self.charm.app][
+                        "root_password_secondary"
+                    ] = root_pass_secondary
+                query = SimpleStatement(
+                    f"CREATE ROLE {ROOT_USER} WITH PASSWORD = '{root_pass_secondary}' AND SUPERUSER = true AND LOGIN = true",
+                    consistency_level=ConsistencyLevel.QUORUM,
+                )
+                session.execute(query)
+        except InvalidRequest as e:
+            if (
+                not str(e)
+                == f'Error from server: code=2200 [Invalid query] message="{ROOT_USER} already exists"'
+            ):
+                raise
+
+        # Now disable the original superuser
+        with self.connect(username=ROOT_USER, password=root_pass_secondary) as session:
+            random_password = self._generate_password()
+            session.execute(
+                "ALTER ROLE cassandra WITH PASSWORD=%s AND SUPERUSER=false",
+                (random_password,),
+            )
+        peer_relation.data[self.charm.app]["root_password"] = root_pass_secondary
+        return root_pass_secondary
+
+    @staticmethod
+    def _generate_password() -> str:
+        """Generate a random password
+
+        Returns:
+            The generated password
+        """
+        alphabet = string.ascii_letters + string.digits
+        return "".join(secrets.choice(alphabet) for i in range(20))

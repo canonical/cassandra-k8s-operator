@@ -23,13 +23,10 @@ from re import IGNORECASE, match
 from typing import Optional
 
 import yaml
-from cassandra import ConsistencyLevel, InvalidRequest  # type: ignore
-from cassandra.query import SimpleStatement
 from charms.cassandra_k8s.v0.cassandra import (
     BlockedStatusError,
     CassandraProvider,
     DeferEventError,
-    generate_password,
     status_catcher,
 )
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardConsumer
@@ -253,9 +250,7 @@ class CassandraOperatorCharm(CharmBase):
         creds = self.provider.credentials(event.rel_id)
         if creds == []:
             username = f"juju-user-{event.app_name}"
-            password = generate_password()
-            self.cassandra.create_user(username, password)
-            creds = [username, password]
+            creds = self.cassandra.create_user(username)
             self.provider.set_credentials(event.rel_id, creds)
 
         requested_dbs = self.provider.requested_databases(event.rel_id)
@@ -265,51 +260,6 @@ class CassandraOperatorCharm(CharmBase):
                 self.cassandra.create_db(db, creds[0], self._goal_units())
                 dbs.append(db)
         self.provider.set_databases(event.rel_id, dbs)
-
-    def _root_password(self) -> str:
-        peer_relation = self.model.get_relation("cassandra-peers")
-        if root_pass := peer_relation.data[self.app].get("root_password", None):
-            return root_pass
-
-        # Without this the query to create a user for some reason does nothing
-        if self._num_units() != self._goal_units():
-            self.unit.status = MaintenanceStatus("Waiting for units")
-            raise DeferEventError("Units not up in _root_password()", "Waiting for units")
-
-        # First create a new superuser
-        try:
-            with self.cassandra.connect(username="cassandra", password="cassandra") as session:
-                # Set system_auth replication here once we have one shot commands in pebble
-                # See https://docs.datastax.com/en/cassandra-oss/3.0/cassandra/configuration/secureConfigNativeAuth.html # noqa: W505
-                root_pass_secondary = peer_relation.data[self.app].get(
-                    "root_password_secondary", None
-                )
-                if root_pass_secondary is None:
-                    root_pass_secondary = generate_password()
-                    peer_relation.data[self.app]["root_password_secondary"] = root_pass_secondary
-                query = SimpleStatement(
-                    f"CREATE ROLE {ROOT_USER} WITH PASSWORD = '{root_pass_secondary}' AND SUPERUSER = true AND LOGIN = true",
-                    consistency_level=ConsistencyLevel.QUORUM,
-                )
-                session.execute(query)
-        except InvalidRequest as e:
-            if (
-                not str(e)
-                == 'Error from server: code=2200 [Invalid query] message="charm_root already exists"'
-            ):
-                raise
-
-        # Now disable the original superuser
-        with self.cassandra.connect(
-            username="charm_root", password=root_pass_secondary
-        ) as session:
-            random_password = generate_password()
-            session.execute(
-                "ALTER ROLE cassandra WITH PASSWORD=%s AND SUPERUSER=false",
-                (random_password,),
-            )
-        peer_relation.data[self.app]["root_password"] = root_pass_secondary
-        return root_pass_secondary
 
     def _configure(self) -> None:
         heap_size = self.model.config["heap_size"]
@@ -344,7 +294,7 @@ class CassandraOperatorCharm(CharmBase):
             restart(container)
 
         if self.unit.is_leader():
-            self._root_password()
+            self.cassandra.root_password()
 
         if self.unit.is_leader():
             self.provider.ready()

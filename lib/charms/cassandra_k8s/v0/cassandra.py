@@ -141,8 +141,6 @@ list of database names can be provided to.
 import functools
 import json
 import logging
-import secrets
-import string
 from typing import Optional
 
 from ops.charm import CharmBase
@@ -393,8 +391,3 @@ def sanitize_name(name: str) -> str:
     """Make a name safe for use as a keyspace name"""
     # For now just change dashes to underscores. Fix this more in the future
     return name.replace("-", "_")
-
-
-def generate_password() -> str:
-    alphabet = string.ascii_letters + string.digits
-    return "".join(secrets.choice(alphabet) for i in range(20))
