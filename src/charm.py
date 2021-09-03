@@ -37,7 +37,7 @@ from ops.main import main
 from ops.model import ActiveStatus, BlockedStatus, MaintenanceStatus, ModelError
 from ops.pebble import APIError, ConnectionError
 
-from cassandra_server import Cassandra
+from cassandra_server import CQL_PORT, Cassandra
 
 logger = logging.getLogger(__name__)
 
@@ -136,13 +136,12 @@ class CassandraOperatorCharm(CharmBase):
     @status_catcher
     def on_config_changed(self, _) -> None:
         self._configure()
-        self.provider.update_port("database", self.model.config["port"])
 
     def on_leader_elected(self, _):
         self.provider.update_address("database", self._bind_address())
 
     def on_database_joined(self, _):
-        self.provider.update_port("database", self.model.config["port"])
+        self.provider.update_port("database", CQL_PORT)
         self.provider.update_address("database", self._bind_address())
 
     @status_catcher
@@ -365,7 +364,7 @@ class CassandraOperatorCharm(CharmBase):
             "num_tokens": 256,
             "listen_address": bind_address,
             "start_native_transport": "true",
-            "native_transport_port": self.model.config["port"],
+            "native_transport_port": CQL_PORT,
             "seed_provider": [
                 {
                     "class_name": "org.apache.cassandra.locator.SimpleSeedProvider",

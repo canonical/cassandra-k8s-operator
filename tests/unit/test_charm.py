@@ -124,17 +124,6 @@ class TestCharm(unittest.TestCase):
         data = self.harness.get_relation_data(rel_id, "cassandra-k8s")
         assert len(json.loads(data["databases"])) == 1
 
-    def test_port_change(self):
-        rel_id = self.harness.add_relation("database", "otherapp")
-        self.assertIsInstance(rel_id, int)
-        self.harness.add_relation_unit(rel_id, "otherapp/0")
-        self.harness.update_relation_data(rel_id, "otherapp", {})
-        self.harness.update_config({"port": "9043"})
-        self.assertEqual(
-            self.harness.get_relation_data(rel_id, self.harness.model.app.name)["port"],
-            "9043",
-        )
-
     def test_root_password_is_set(self):
         rel = self.harness.charm.model.get_relation("cassandra-peers")
         self.assertEqual(rel.data[self.harness.charm.app].get("root_password", None), None)

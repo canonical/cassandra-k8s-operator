@@ -13,10 +13,6 @@
 #  limitations under the License.
 
 options:
-  port:
-    default: 9042
-    description: The port to expose for cql connections
-    type: int
   heap_size:
     default: 6G
     description: |
