@@ -1,3 +1,6 @@
+# Copyright 2020 Canonical Ltd.
+# See LICENSE file for licensing details.
+
 import contextlib
 import logging
 import secrets
