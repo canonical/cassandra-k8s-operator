@@ -15,8 +15,8 @@ from cassandra.cluster import (
 )
 from cassandra.policies import RoundRobinPolicy
 from cassandra.query import SimpleStatement
-from charms.cassandra_k8s.v0.cassandra import DeferEventError
 from ops.charm import CharmBase
+from ops.framework import EventBase
 from ops.model import MaintenanceStatus
 
 CQL_PORT = 9042
@@ -43,10 +43,13 @@ class Cassandra:
         self.charm = charm
 
     @contextlib.contextmanager
-    def connect(self, username: str = ROOT_USER, password: Optional[str] = None) -> Session:
+    def connect(
+        self, event: EventBase, username: str = ROOT_USER, password: Optional[str] = None
+    ) -> Session:
         """Context manager to connect to the Cassandra cluster and return an active session
 
         Args:
+            event: The current event object
             username: username to connect with
             password: password to connect with
 
@@ -54,7 +57,7 @@ class Cassandra:
             A cassandra session
         """
         if password is None:
-            password = self.root_password()
+            password = self.root_password(event)
         auth_provider = PlainTextAuthProvider(username=username, password=password)
         profile = ExecutionProfile(load_balancing_policy=RoundRobinPolicy())
         cluster = Cluster(
@@ -67,17 +70,14 @@ class Cassandra:
         try:
             session = cluster.connect()
             yield session
-        except NoHostAvailable as e:
-            logger.info("Caught exception %s:%s", type(e), e)
-            self.charm.unit.status = MaintenanceStatus("Cassandra Starting")
-            raise DeferEventError("Can't connect to database", "Waiting for Database")
         finally:
             cluster.shutdown
 
-    def create_user(self, username: str) -> List[str]:
+    def create_user(self, event: EventBase, username: str) -> List[str]:
         """Create a new Cassandra user
 
         Args:
+            event: The current event object
             username: The username of the new user
 
         Returns:
@@ -85,28 +85,42 @@ class Cassandra:
 
         """
         password = self._generate_password()
-        with self.connect() as conn:
-            conn.execute(
-                f"CREATE ROLE IF NOT EXISTS '{username}' WITH PASSWORD = '{password}' AND LOGIN = true"
-            )
+        try:
+            with self.connect(event) as conn:
+                conn.execute(
+                    f"CREATE ROLE IF NOT EXISTS '{username}' WITH PASSWORD = '{password}' AND LOGIN = true"
+                )
+        except NoHostAvailable as e:
+            logger.info("Caught exception %s:%s: deferring", type(e), e)
+            self.charm.unit.status = MaintenanceStatus("Waiting for Database")
+            event.defer()
+            return []
         return [username, password]
 
-    def create_db(self, db_name: str, user: str, replication: int) -> None:
+    def create_db(self, event: EventBase, db_name: str, user: str, replication: int) -> bool:
         """Create a new keyspace and grant all permissions to user
 
         Args:
+            event: The current event object
             db_name: Name of the new keyspace
             user: User which should have access to the keyspace
             replication: The replication factor for the keyspace
         """
-        with self.connect() as conn:
-            # TODO: Review replication strategy
-            conn.execute(
-                f"CREATE KEYSPACE IF NOT EXISTS {db_name} WITH REPLICATION = {{ 'class' : 'SimpleStrategy', 'replication_factor' : {replication} }}"
-            )
-            conn.execute(f"GRANT ALL PERMISSIONS ON KEYSPACE {db_name} to '{user}'")
+        try:
+            with self.connect(event) as conn:
+                # TODO: Review replication strategy
+                conn.execute(
+                    f"CREATE KEYSPACE IF NOT EXISTS {db_name} WITH REPLICATION = {{ 'class' : 'SimpleStrategy', 'replication_factor' : {replication} }}"
+                )
+                conn.execute(f"GRANT ALL PERMISSIONS ON KEYSPACE {db_name} to '{user}'")
+        except NoHostAvailable as e:
+            logger.info("Caught exception %s:%s: deferring", type(e), e)
+            self.charm.unit.status = MaintenanceStatus("Waiting for Database")
+            event.defer()
+            return False
+        return True
 
-    def root_password(self) -> str:
+    def root_password(self, event) -> str:
         """If the root password is already set, return it. If the root password is not already
         set, generate a new one.
 
@@ -119,11 +133,13 @@ class Cassandra:
 
         # Without this the query to create a user for some reason does nothing
         if self.charm._num_units() != self.charm._goal_units():
-            raise DeferEventError("Units not up in root_password()", "Waiting for units")
+            self.charm.unit.status = MaintenanceStatus("Waiting for units")
+            event.defer()
+            return ""
 
         # First create a new superuser
         try:
-            with self.connect(username="cassandra", password="cassandra") as session:
+            with self.connect(event, username="cassandra", password="cassandra") as session:
                 # Set system_auth replication here once we have one shot commands in pebble
                 # See https://docs.datastax.com/en/cassandra-oss/3.0/cassandra/configuration/secureConfigNativeAuth.html # noqa: W505
                 root_pass_secondary = peer_relation.data[self.charm.app].get(
@@ -139,6 +155,11 @@ class Cassandra:
                     consistency_level=ConsistencyLevel.QUORUM,
                 )
                 session.execute(query)
+        except NoHostAvailable as e:
+            logger.info("Caught exception %s:%s: deferring", type(e), e)
+            self.charm.unit.status = MaintenanceStatus("Waiting for Database")
+            event.defer()
+            return ""
         except InvalidRequest as e:
             if (
                 not str(e)
@@ -147,12 +168,18 @@ class Cassandra:
                 raise
 
         # Now disable the original superuser
-        with self.connect(username=ROOT_USER, password=root_pass_secondary) as session:
-            random_password = self._generate_password()
-            session.execute(
-                "ALTER ROLE cassandra WITH PASSWORD=%s AND SUPERUSER=false",
-                (random_password,),
-            )
+        try:
+            with self.connect(event, username=ROOT_USER, password=root_pass_secondary) as session:
+                random_password = self._generate_password()
+                session.execute(
+                    "ALTER ROLE cassandra WITH PASSWORD=%s AND SUPERUSER=false",
+                    (random_password,),
+                )
+        except NoHostAvailable as e:
+            logger.info("Caught exception %s:%s: deferring", type(e), e)
+            self.charm.unit.status = MaintenanceStatus("Waiting for Database")
+            event.defer()
+            return ""
         peer_relation.data[self.charm.app]["root_password"] = root_pass_secondary
         return root_pass_secondary
 

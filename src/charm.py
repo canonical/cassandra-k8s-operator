@@ -23,12 +23,7 @@ from re import IGNORECASE, match
 from typing import Optional
 
 import yaml
-from charms.cassandra_k8s.v0.cassandra import (
-    BlockedStatusError,
-    CassandraProvider,
-    DeferEventError,
-    status_catcher,
-)
+from charms.cassandra_k8s.v0.cassandra import CassandraProvider
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardConsumer
 from charms.prometheus_k8s.v0.prometheus import PrometheusConsumer
 from ops.charm import CharmBase
@@ -124,18 +119,17 @@ class CassandraOperatorCharm(CharmBase):
         )
         self.cassandra = Cassandra(charm=self)
 
-    @status_catcher
     def on_pebble_ready(self, event: EventBase) -> None:
-        self._configure()
+        if self._configure(event) is False:
+            return
         container = event.workload
         if len(self.model.relations["monitoring"]) > 0:
             self._setup_monitoring()
         make_started(container)
         self.provider.update_address("database", self._bind_address())
 
-    @status_catcher
-    def on_config_changed(self, _) -> None:
-        self._configure()
+    def on_config_changed(self, event) -> None:
+        self._configure(event)
 
     def on_leader_elected(self, _):
         self.provider.update_address("database", self._bind_address())
@@ -144,7 +138,6 @@ class CassandraOperatorCharm(CharmBase):
         self.provider.update_port("database", CQL_PORT)
         self.provider.update_address("database", self._bind_address())
 
-    @status_catcher
     def on_dashboard_joined(self, _) -> None:
         if not self.unit.is_leader():
             return
@@ -169,7 +162,6 @@ class CassandraOperatorCharm(CharmBase):
             self._dashboard_valid = False
             self.unit.status = BlockedStatus(event.error_message)
 
-    @status_catcher
     def on_monitoring_joined(self, _) -> None:
         self._setup_monitoring()
 
@@ -217,7 +209,6 @@ class CassandraOperatorCharm(CharmBase):
             if restart_required:
                 restart(container)
 
-    @status_catcher
     def on_monitoring_broken(self, _) -> None:
         # If there are no monitoring relations, disable metrics
         if len(self.model.relations["monitoring"]) == 0:
@@ -234,58 +225,64 @@ class CassandraOperatorCharm(CharmBase):
             except ConnectionError:
                 logger.warning("Could not disable monitoring. Could not connect to Pebble.")
 
-    @status_catcher
-    def on_cassandra_peers_changed(self, _) -> None:
-        self._configure()
+    def on_cassandra_peers_changed(self, event) -> None:
+        self._configure(event)
 
-    @status_catcher
-    def on_cassandra_peers_departed(self, _) -> None:
-        self._configure()
+    def on_cassandra_peers_departed(self, event) -> None:
+        self._configure(event)
 
-    @status_catcher
     def on_provider_data_changed(self, event: EventBase) -> None:
         if not self.unit.is_leader():
             return
         creds = self.provider.credentials(event.rel_id)
         if creds == []:
             username = f"juju-user-{event.app_name}"
-            creds = self.cassandra.create_user(username)
+            if not (creds := self.cassandra.create_user(event, username)):
+                return
             self.provider.set_credentials(event.rel_id, creds)
 
         requested_dbs = self.provider.requested_databases(event.rel_id)
         dbs = self.provider.databases(event.rel_id)
         for db in requested_dbs:
             if db not in dbs:
-                self.cassandra.create_db(db, creds[0], self._goal_units())
+                if not self.cassandra.create_db(event, db, creds[0], self._goal_units()):
+                    return
                 dbs.append(db)
         self.provider.set_databases(event.rel_id, dbs)
 
-    def _configure(self) -> None:
+    def _configure(self, event: EventBase) -> bool:
         heap_size = self.model.config["heap_size"]
 
         if match(r"^\d+[KMG]$", heap_size, IGNORECASE) is None:
-            raise BlockedStatusError(f"Invalid Cassandra heap size setting: '{heap_size}'")
+            self.unit.status = BlockedStatus(f"Invalid Cassandra heap size setting: '{heap_size}'")
+            return False
 
         if self._num_units() != self._goal_units():
-            raise DeferEventError("Units not up in _configure()", "Waiting for units")
+            self.unit.status = MaintenanceStatus("Waiting for units")
+            event.defer()
+            return False
 
         if (bind_address := self._bind_address()) is None:
-            raise DeferEventError("No ip address in _configure()", "Waiting for units")
+            self.unit.status = MaintenanceStatus("Waiting for IP address")
+            event.defer()
+            return False
 
         peer_rel = self.model.get_relation("cassandra-peers")
         peer_rel.data[self.unit]["peer_address"] = bind_address
 
         needs_restart = False
 
-        conf = self._config_file()
+        if not (conf := self._config_file(event)):
+            return False
         container = self.unit.get_container("cassandra")
-        if yaml.safe_load(container.pull(CONFIG_PATH).read()) != yaml.safe_load(conf):
+        if yaml.safe_load(container.pull(CONFIG_PATH).read()) != yaml.safe_load(conf):  # type: ignore
             container.push(CONFIG_PATH, conf)
             needs_restart = True
 
-        layer = self._build_layer()
+        if not (layer := self._build_layer(event)):
+            return False
         services = container.get_plan().to_dict().get("services", {})
-        if services != layer["services"]:
+        if services != layer["services"]:  # type: ignore
             container.add_layer("cassandra", layer, combine=True)
             needs_restart = True
 
@@ -293,16 +290,20 @@ class CassandraOperatorCharm(CharmBase):
             restart(container)
 
         if self.unit.is_leader():
-            self.cassandra.root_password()
+            if not self.cassandra.root_password(event):
+                return False
 
         if self.unit.is_leader():
             self.provider.ready()
 
         self.unit.status = ActiveStatus()
         logger.debug("Pod spec set successfully.")
+        return True
 
-    def _build_layer(self) -> dict:
+    def _build_layer(self, event) -> dict:
         heap_size = self.model.config["heap_size"]
+        if not (seeds := self._seeds(event)):
+            return {}
         layer = {
             "summary": "Cassandra Layer",
             "description": "pebble config layer for Cassandra",
@@ -314,23 +315,25 @@ class CassandraOperatorCharm(CharmBase):
                     "startup": "enabled",
                     "environment": {
                         "JVM_OPTS": f"-Xms{heap_size} -Xmx{heap_size}",
-                        "CASSANDRA_SEEDS": self._seeds(),
+                        "CASSANDRA_SEEDS": seeds,
                     },
                 }
             },
         }
         return layer
 
-    def _seeds(self) -> str:
+    def _seeds(self, event) -> str:
         if (bind_address := self._bind_address()) is None:
-            self.unit.status = MaintenanceStatus("Waiting for network address")
-            raise DeferEventError("No ip address in _seeds()", "Waiting for units")
+            self.unit.status = MaintenanceStatus("Waiting for IP address")
+            event.defer()
+            return ""
         peers = [bind_address]
         rel = self.model.get_relation("cassandra-peers")
         for unit in rel.units:
             if (addr := rel.data[unit].get("peer_address")) is None:
-                self.unit.status = MaintenanceStatus("Waiting for peer addresses")
-                raise DeferEventError("No peer ip address in _seeds()", "Waiting for units")
+                self.unit.status = MaintenanceStatus("Waiting for peer IP addresses")
+                event.defer()
+                return ""
             peers.append(addr)
         peers.sort()
         return ",".join(peers[:3])
@@ -355,10 +358,13 @@ class CassandraOperatorCharm(CharmBase):
             else:
                 raise
 
-    def _config_file(self) -> str:
+    def _config_file(self, event) -> str:
         if (bind_address := self._bind_address()) is None:
-            self.unit.status = MaintenanceStatus("Waiting for network address")
-            raise DeferEventError("No ip address in _config_file()", "Waiting for units")
+            self.unit.status = MaintenanceStatus("Waiting for IP address")
+            event.defer()
+            return ""
+        if not (seeds := self._seeds(event)):
+            return ""
         conf = {
             "cluster_name": f"juju-cluster-{self.app.name}",
             "num_tokens": 256,
@@ -368,7 +374,7 @@ class CassandraOperatorCharm(CharmBase):
             "seed_provider": [
                 {
                     "class_name": "org.apache.cassandra.locator.SimpleSeedProvider",
-                    "parameters": [{"seeds": self._seeds()}],
+                    "parameters": [{"seeds": seeds}],
                 }
             ],
             "authenticator": "PasswordAuthenticator",
