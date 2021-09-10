@@ -1,7 +1,0 @@
--r requirements.txt
-flake8
-black
-coverage
-juju
-pytest
-pytest-asyncio
