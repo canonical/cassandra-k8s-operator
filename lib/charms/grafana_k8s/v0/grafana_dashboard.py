@@ -1,24 +1,21 @@
+# Copyright 2021 Canonical Ltd.
+# See LICENSE file for licensing details.
+
+"""A library for working with Grafana dashboards for charm authors."""
+
 import base64
 import copy
 import json
 import logging
 import uuid
 import zlib
+from typing import Dict, List, Union
 
 from jinja2 import Template
 from jinja2.exceptions import TemplateSyntaxError
-
-from ops.charm import (
-    CharmBase,
-    CharmEvents,
-    RelationBrokenEvent,
-    RelationChangedEvent,
-)
+from ops.charm import CharmBase, RelationBrokenEvent, RelationChangedEvent
+from ops.framework import EventBase, EventSource, Object, ObjectEvents, StoredState
 from ops.model import Relation, Unit
-from ops.framework import EventBase, EventSource, StoredState
-from ops.relation import ConsumerBase, ConsumerEvents, ProviderBase
-
-from typing import Dict, List, Union
 
 # The unique Charmhub library identifier, never change it
 LIBID = "c49eb9c7dfef40c7b6235ebd67010a3f"
@@ -34,30 +31,31 @@ logger = logging.getLogger(__name__)
 
 
 class GrafanaDashboardsChanged(EventBase):
-    """Event emitted when Grafana dashboards change"""
+    """Event emitted when Grafana dashboards change."""
 
     def __init__(self, handle, data=None):
         super().__init__(handle)
         self.data = data
 
     def snapshot(self) -> Dict:
-        """Save grafana source information"""
+        """Save grafana source information."""
         return {"data": self.data}
 
     def restore(self, snapshot):
-        """Restore grafana source information"""
+        """Restore grafana source information."""
         self.data = snapshot["data"]
 
 
-class GrafanaDashboardEvents(CharmEvents):
-    """Events raised by :class:`GrafanaSourceEvents`"""
+class GrafanaDashboardEvents(ObjectEvents):
+    """Events raised by :class:`GrafanaSourceEvents`."""
 
     dashboards_changed = EventSource(GrafanaDashboardsChanged)
 
 
 class GrafanaDashboardEvent(EventBase):
-    """Event emitted when Grafana dashboards cannot be resolved so we can
-    set a status on the consumer
+    """Event emitted when Grafana dashboards cannot be resolved.
+
+    Enables us to set a clear status on the consumer.
     """
 
     def __init__(self, handle, error_message: str = "", valid: bool = False):
@@ -66,22 +64,24 @@ class GrafanaDashboardEvent(EventBase):
         self.valid = valid
 
     def snapshot(self) -> Dict:
-        """Save grafana source information"""
+        """Save grafana source information."""
         return {"error_message": self.error_message, "valid": self.valid}
 
     def restore(self, snapshot):
-        """Restore grafana source information"""
+        """Restore grafana source information."""
         self.error_message = snapshot["error_message"]
         self.valid = snapshot["valid"]
 
 
-class GrafanaConsumerEvents(ConsumerEvents):
-    """Events raised by :class:`GrafanaSourceEvents`"""
+class GrafanaConsumerEvents(ObjectEvents):
+    """Events raised by :class:`GrafanaSourceEvents`."""
 
     dashboard_status_changed = EventSource(GrafanaDashboardEvent)
 
 
-class GrafanaDashboardConsumer(ConsumerBase):
+class GrafanaDashboardConsumer(Object):
+    """A consumer object for Grafana dashboards."""
+
     _stored = StoredState()
     on = GrafanaConsumerEvents()
 
@@ -89,9 +89,7 @@ class GrafanaDashboardConsumer(ConsumerBase):
         self,
         charm: CharmBase,
         name: str,
-        consumes: dict,
         event_relation: str = "monitoring",
-        multi: bool = False,
     ) -> None:
         """Construct a Grafana dashboard charm client.
 
@@ -103,38 +101,25 @@ class GrafanaDashboardConsumer(ConsumerBase):
         by instantiating a :class:`GrafanaDashboardConsumer` object and
         adding its datasources as follows:
 
-            self.grafana = GrafanaConsumer(self, "grafana-source", {"grafana-source"}: ">=2.0"})
+            self.grafana = GrafanaConsumer(self, "grafana-source")
             self.grafana.add_dashboard(data: str)
 
         Args:
-
             charm: a :class:`CharmBase` object which manages this
                 :class:`GrafanaConsumer` object. Generally this is
                 `self` in the instantiating class.
             name: a :string: name of the relation between `charm`
                 the Grafana charmed service.
-            consumes: a :dict: of acceptable monitoring service
-                providers. The keys of the dictionary are :string:
-                names of grafana source service providers. Typically,
-                this is `grafana-source`. The values of the dictionary
-                are corresponding minimal acceptable semantic versions
-                for the service.
             event_relation: a :string: name of the relation between
                 the charmed service and some provider which is required
                 for dashboard validity. When events on `event_relation`
                 occur, this consumer library will invalidate or
                 restore the dashboard
-            multi: an optional (default `False`) flag to indicate if
-                this object should support interacting with multiple
-                service providers.
-
         """
-        super().__init__(charm, name, consumes, multi)
-
+        super().__init__(charm, name)
         self.charm = charm
-        self._stored.set_default(
-            dashboards={}, dashboard_templates={}, event_relation=None
-        )
+        self.name = name
+        self._stored.set_default(dashboards={}, dashboard_templates={}, event_relation=None)
         self._stored.event_relation = event_relation
 
         events = self.charm.on[name]
@@ -153,10 +138,10 @@ class GrafanaDashboardConsumer(ConsumerBase):
         )
 
     def add_dashboard(self, data: str, rel_id=None) -> None:
-        """
-        Add a dashboard to Grafana. `data` should be a string representing
-        a jinja template which can be templated with the appropriate
-        `grafana_datasource` and `prometheus_job_name`.
+        """Add a dashboard to Grafana.
+
+        `data` should be a string representing a jinja template which can be templated with the
+        appropriate `grafana_datasource` and `prometheus_job_name`.
         """
         rel = self.framework.model.get_relation(self.name, rel_id)
         rel_id = rel_id if rel_id is not None else rel.id
@@ -172,19 +157,16 @@ class GrafanaDashboardConsumer(ConsumerBase):
             error_message = ("Waiting for a {} relation to send dashboard data").format(
                 self._stored.event_relation
             )
-            self.on.dashboard_status_changed.emit(
-                error_message=error_message, valid=False
-            )
+            self.on.dashboard_status_changed.emit(error_message=error_message, valid=False)
             return
 
         self._update_dashboards(data, rel_id, prom_unit)
 
-    def _on_grafana_dashboard_relation_changed(
-        self, event: RelationChangedEvent
-    ) -> None:
-        """
-        Watch for changes so we know if there's an error to signal back to the
-        parent charm.
+    def _on_grafana_dashboard_relation_changed(self, event: RelationChangedEvent) -> None:
+        """Watch for changes so we know if there's an error to signal back to the parent charm.
+
+        Args:
+            event: The `RelationChangedEvent` that triggered this handler.
         """
         if not self.charm.unit.is_leader():
             return
@@ -213,9 +195,7 @@ class GrafanaDashboardConsumer(ConsumerBase):
                 )
 
     def _update_dashboards(self, data: str, rel_id: int, prom_unit: Unit) -> None:
-        """
-        Update the dashboards in the relation data bucket.
-        """
+        """Update the dashboards in the relation data bucket."""
         if not self.charm.unit.is_leader():
             return
 
@@ -231,10 +211,8 @@ class GrafanaDashboardConsumer(ConsumerBase):
             self.charm.model.uuid,
         )
 
-        prom_query = (
-            "juju_model='{}',juju_model_uuid='{}',juju_application='{}'".format(
-                self.charm.model.name, self.charm.model.uuid, self.charm.app.name
-            )
+        prom_query = "juju_model='{}',juju_model_uuid='{}',juju_application='{}'".format(
+            self.charm.model.name, self.charm.model.uuid, self.charm.app.name
         )
 
         # It's completely ridiculous to add a UUID, but if we don't have some
@@ -320,9 +298,7 @@ class GrafanaDashboardConsumer(ConsumerBase):
     def _check_monitoring_relation(self) -> bool:
         """Check whether an existing monitoring relation exists."""
         return (
-            True
-            if len(self.model.get_relation(self._stored.event_relation).units) == 0
-            else False
+            True if len(self.model.get_relation(self._stored.event_relation).units) == 0 else False
         )
 
     @property
@@ -331,30 +307,24 @@ class GrafanaDashboardConsumer(ConsumerBase):
         return [v for v in self._stored.dashboards.values()]
 
 
-class GrafanaDashboardProvider(ProviderBase):
+class GrafanaDashboardProvider(Object):
+    """A provider object for working with Grafana Dashboards."""
+
     on = GrafanaDashboardEvents()
     _stored = StoredState()
 
-    def __init__(self, charm: CharmBase, name: str, service: str, version=None) -> None:
-        """A Grafana based Monitoring service consumer
+    def __init__(self, charm: CharmBase, name: str) -> None:
+        """A Grafana based Monitoring service consumer.
 
         Args:
             charm: a :class:`CharmBase` instance that manages this
                 instance of the Grafana dashboard service.
             name: string name of the relation that is provides the
                 Grafana dashboard service.
-            service: string name of service provided. This is used by
-                :class:`GrafanaDashboardProvider` to validate this service as
-                acceptable. Hence the string name must match one of the
-                acceptable service names in the :class:`GrafanaDashboardProvider`s
-                `consumes` argument. Typically this string is just "grafana".
-            version: a string providing the semantic version of the Grafana
-                dashboard being provided.
-
         """
-        super().__init__(charm, name, service, version)
-
+        super().__init__(charm, name)
         self.charm = charm
+        self.name = name
         events = self.charm.on[name]
 
         self._stored.set_default(
@@ -366,19 +336,15 @@ class GrafanaDashboardProvider(ProviderBase):
         self.framework.observe(
             events.relation_changed, self._on_grafana_dashboard_relation_changed
         )
-        self.framework.observe(
-            events.relation_broken, self._on_grafana_dashboard_relation_broken
-        )
+        self.framework.observe(events.relation_broken, self._on_grafana_dashboard_relation_broken)
 
-    def _on_grafana_dashboard_relation_changed(
-        self, event: RelationChangedEvent
-    ) -> None:
+    def _on_grafana_dashboard_relation_changed(self, event: RelationChangedEvent) -> None:
         """Handle relation changes in related consumers.
 
         If there are changes in relations between Grafana dashboard providers
         and consumers, this event handler (if the unit is the leader) will
         get data for an incoming grafana-dashboard relation through a
-        :class:`GrafanaDashboardssChanged` event, and make the relation data
+        :class:`GrafanaDashboardsChanged` event, and make the relation data
         is available in the app's datastore object. The Grafana charm can
         then respond to the event to update its configuration
         """
@@ -418,10 +384,15 @@ class GrafanaDashboardProvider(ProviderBase):
         self._validate_dashboard_data(data, rel)
 
     def _validate_dashboard_data(self, data: Dict, rel: Relation) -> None:
-        """
+        """Validate a given dashboard.
+
         Verify that the passed dashboard data is able to be found in our list
         of datasources and will render. If they do, let the charm know by
         emitting an event.
+
+        Args:
+            data: Dict; The serialised dashboard.
+            rel: Relation; The relation the dashboard is associated with.
         """
         grafana_datasource = self._find_grafana_datasource(data, rel)
         if not grafana_datasource:
@@ -436,19 +407,15 @@ class GrafanaDashboardProvider(ProviderBase):
         # of encoding to byte, compressing with zlib, converting to base64 so it
         # can be converted to JSON, then all the way back
         try:
-            tm = Template(
-                zlib.decompress(base64.b64decode(data["template"].encode())).decode()
-            )
+            tm = Template(zlib.decompress(base64.b64decode(data["template"].encode())).decode())
         except TemplateSyntaxError:
             self._purge_dead_dashboard(rel.id)
-            msg = "Cannot add Grafana dashboard. Template is not valid Jinja"
-            logger.warning(msg)
-            rel.data[self.charm.app]["event"] = json.dumps(
-                {"errors": msg, "valid": False}
-            )
+            errmsg = "Cannot add Grafana dashboard. Template is not valid Jinja"
+            logger.warning(errmsg)
+            rel.data[self.charm.app]["event"] = json.dumps({"errors": errmsg, "valid": False})
             return
 
-        msg = tm.render(
+        tmpl = tm.render(
             grafana_datasource=grafana_datasource,
             prometheus_target=data["monitoring_target"],
             prometheus_query=data["monitoring_query"],
@@ -456,7 +423,7 @@ class GrafanaDashboardProvider(ProviderBase):
 
         msg = {
             "target": data["monitoring_identifier"],
-            "dashboard": base64.b64encode(zlib.compress(msg.encode(), 9)).decode(),
+            "dashboard": base64.b64encode(zlib.compress(tmpl.encode(), 9)).decode(),
             "data": data,
         }
 
@@ -464,9 +431,7 @@ class GrafanaDashboardProvider(ProviderBase):
         # send data back to the providing charm so it knows this dashboard is
         # valid now
         if self._stored.invalid_dashboards.pop(rel.id, None):
-            rel.data[self.charm.app]["event"] = json.dumps(
-                {"errors": "", "valid": True}
-            )
+            rel.data[self.charm.app]["event"] = json.dumps({"errors": "", "valid": True})
 
         stored_data = self._stored.dashboards.get(rel.id, {}).get("data", {})
         coerced_data = dict(stored_data) if stored_data else {}
@@ -476,7 +441,8 @@ class GrafanaDashboardProvider(ProviderBase):
             self.on.dashboards_changed.emit()
 
     def _find_grafana_datasource(self, data: Dict, rel: Relation) -> Union[str, None]:
-        """
+        """Find datasources on a given relation for a provider.
+
         Loop through the provider data and try to find a matching datasource. Return it
         if possible, otherwise add it to the list of invalid dashboards.
 
@@ -497,27 +463,31 @@ class GrafanaDashboardProvider(ProviderBase):
         return grafana_datasource
 
     def _check_active_data_sources(self, data: Dict, rel: Relation) -> bool:
-        """
+        """Check for active Grafana dashboards.
+
         A trivial check to see whether there are any active datasources or not, used
-        by both new dashboard additions and trying to restore invalid ones. Returns
-        a :bool:
+        by both new dashboard additions and trying to restore invalid ones.
+
+        Returns: a boolean indicating if there are any active dashboards.
         """
         if not self._stored.active_sources:
             msg = "Cannot add Grafana dashboard. No configured datasources"
             self._stored.invalid_dashboards[rel.id] = data
             self._purge_dead_dashboard(rel.id)
             logger.warning(msg)
-            rel.data[self.charm.app]["event"] = json.dumps(
-                {"errors": msg, "valid": False}
-            )
+            rel.data[self.charm.app]["event"] = json.dumps({"errors": msg, "valid": False})
 
             return False
         return True
 
     def renew_dashboards(self, sources: List) -> None:
-        """
+        """Re-establish dashboards following a change to the relation.
+
         If something changes between this library and a datasource, try to re-establish
-        invalid dashboards and invalidate active ones
+        invalid dashboards and invalidate active ones.
+
+        Args:
+            sources: List; A list of datasources.
         """
         # Cannot nest StoredDict inside StoredList
         self._stored.active_sources = [dict(s) for s in sources]
@@ -552,14 +522,15 @@ class GrafanaDashboardProvider(ProviderBase):
             logger.warning("Could not remove dashboard for relation: {}".format(rel_id))
 
     def _purge_dead_dashboard(self, rel_id: int) -> None:
-        """If an errored dashboard is in stored data, remove it and trigger a deletion"""
+        """If an errored dashboard is in stored data, remove it and trigger a deletion."""
         if self._stored.dashboards.pop(rel_id, None):
             self.on.dashboards_changed.emit()
 
     @property
     def dashboards(self) -> List:
-        """
-        Returns a list of known dashboards
+        """Get a list of known dashboards.
+
+        Returns: a list of known dashboards.
         """
         dashboards = []
         for dash in self._stored.dashboards.values():
