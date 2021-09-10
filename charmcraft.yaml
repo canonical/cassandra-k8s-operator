@@ -4,12 +4,12 @@
 type: charm
 bases:
   - build-on:
-    - name: "ubuntu"
-      channel: "20.04"
+      - name: "ubuntu"
+        channel: "20.04"
     run-on:
-    - name: "ubuntu"
-      channel: "20.04"
+      - name: "ubuntu"
+        channel: "20.04"
 parts:
   charm:
     build-packages:
-    - git
+      - git
