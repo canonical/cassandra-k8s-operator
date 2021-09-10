@@ -23,8 +23,13 @@ A typical setup using [snaps](https://snapcraft.io/) can be found in the
 To build and deploy the charm:
 
 ```sh
-charmcraft build
-curl -L https://github.com/instaclustr/cassandra-exporter/releases/download/v0.9.10/cassandra-exporter-agent-0.9.10.jar -o cassandra-exporter-agent.jar
+# Build the charm
+charmcraft pack
+# Download the Cassandra Prometheus exporter
+curl \
+  -L https://github.com/instaclustr/cassandra-exporter/releases/download/v0.9.10/cassandra-exporter-agent-0.9.10.jar \
+  -o cassandra-exporter-agent.jar
+# Deploy the charm
 juju deploy ./cassandra-k8s_ubuntu-20.04-amd64.charm \
     --resource cassandra-image='cassandra:3.11' \
     --resource cassandra-prometheus-exporter="$(pwd)/cassandra-exporter-agent.jar"
@@ -32,8 +37,8 @@ juju deploy ./cassandra-k8s_ubuntu-20.04-amd64.charm \
 
 ## Testing
 
-The Python operator framework includes a very nice harness for testing operator
-behaviour without full deployment. These tests are run using tox:
+The Charmed Operator Framework includes a very nice harness for testing operator
+behavior without full deployment. These tests are run using tox:
 
 ```sh
 tox

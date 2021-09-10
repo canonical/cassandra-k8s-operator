@@ -21,7 +21,7 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - name: Chekout
+      - name: Checkout
         uses: actions/checkout@v2
       - name: Install dependencies
         run: pip install tox
@@ -32,7 +32,7 @@ jobs:
     name: Unit Tests
     runs-on: ubuntu-latest
     steps:
-      - name: Chekout
+      - name: Checkout
         uses: actions/checkout@v2
       - name: Install dependencies
         run: pip install tox
