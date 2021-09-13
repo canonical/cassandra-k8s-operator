@@ -119,7 +119,6 @@ class CassandraOperatorCharm(CharmBase):
         self.dashboard_consumer = GrafanaDashboardConsumer(
             charm=self,
             name="grafana-dashboard",
-            consumes={"Grafana": ">=2.0.0"},
         )
         self.framework.observe(
             self.on["grafana-dashboard"].relation_joined, self.on_dashboard_joined
