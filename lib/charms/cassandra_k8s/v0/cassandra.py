@@ -202,7 +202,6 @@ class CassandraConsumer(Object):
     def __init__(self, charm, name):
         super().__init__(charm, name)
         self.charm = charm
-        self.name = name
         self.relation_name = name
         events = self.charm.on[name]
         self.framework.observe(events.relation_changed, self.on_relation_changed)
