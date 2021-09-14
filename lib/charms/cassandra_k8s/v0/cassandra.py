@@ -10,21 +10,11 @@ between Cassandra charms and any other charm that intends to use the database.
 
 ## Consumer Library Usage
 
-The Cassandra charm library uses the [Provider and
-Consumer](https://ops.readthedocs.io/en/latest/#module-ops.relation) objects
-from the Operator Framework. Charms that would like to use a Cassandra database
-must use the `CassandraConsumer` object from the charm library. Using the
-`CassandraConsumer` object requires instantiating it, typically in the
-constructor of your charm. The `CassandraConsumer` constructor requires the
-name of the relation over which a database will be used. This relation must use
-the `cassandra` interface. In addition the constructor also requires a
-`consumes` specification, which is a dictionary with key `cassandra` (also see
-Provider Library Usage below) and a value that represents the minimum
-acceptable version of Cassandra. This version string can be in any format that
-is compatible with the Python [Semantic Version
-module](https://pypi.org/project/semantic-version/). For example, assuming your
-charm consumes a database over a rlation named "monitoring", you may
-instantiate `CassandraConsumer` as follows
+Charms that would like to use a Cassandra database must use the `CassandraConsumer`
+object from the charm library. Using the `CassandraConsumer` object requires
+instantiating it, typically in the constructor of your charm. The `CassandraConsumer`
+constructor requires the name of the relation over which a database will be used.
+This relation must use the `cassandra` interface.
 
     from charms.cassandra_k8s.v0.cassandra import CassandraConsumer
 
@@ -32,18 +22,9 @@ instantiate `CassandraConsumer` as follows
         super().__init__(*args)
         ...
         self.cassandra_consumer = CassandraConsumer(
-            self, "monitoring", {"cassandra": ">=3"}
+            self, "monitoring"}
         )
         ...
-
-This example hard codes the consumes dictionary argument containing the minimal
-Cassandra version required, however you may want to consider generating this
-dictionary by some other means, such as a `self.consumes` property in your
-charm. This is because the minimum required Cassandra version may change when
-you upgrade your charm. Of course it is expected that you will keep this
-version string updated as you develop newer releases of your charm. If the
-version string can be determined at run time by inspecting the actual deployed
-version of your charmed application, this would be ideal.
 
 An instantiated `CassandraConsumer` object may be used to request new databases
 using the `new_database()` method. This method requires no arguments unless you
@@ -73,11 +54,6 @@ pieces of information
     string that clients will use as the key of their `consumes` specification.
     It is recommended that this key be `cassandra`.
 
-  - The Cassandra application version. Since a system administrator may choose
-    to deploy the Cassandra charm with a non default version of Cassandra, it
-    is strongly recommended that the version string be determined by actually
-    querying the running instance of Cassandra.
-
   For example a Cassandra charm may instantiate the `CassandraProvider` in its
   constructor as follows
 
@@ -87,7 +63,7 @@ pieces of information
         super().__init__(*args)
         ...
         self.prometheus_provider = CassandraProvider(
-                self, "database", "cassandra", self.version
+                self, "database"
             )
         ...
 
@@ -144,9 +120,8 @@ import logging
 import secrets
 import string
 
-from ops.framework import EventBase, EventSource, ObjectEvents
+from ops.framework import EventBase, EventSource, Object, ObjectEvents
 from ops.model import BlockedStatus, MaintenanceStatus, WaitingStatus
-from ops.relation import ConsumerBase, ConsumerEvents, ProviderBase
 
 LIBID = "fab458c53af54b0fa7ff696d71e243c1"
 LIBAPI = 0
@@ -217,15 +192,15 @@ class DatabasesChangedEvent(EventBase):
         self.rel_id = snapshot["rel_id"]
 
 
-class CassandraConsumerEvents(ConsumerEvents):
+class CassandraConsumerEvents(ObjectEvents):
     databases_changed = EventSource(DatabasesChangedEvent)
 
 
-class CassandraConsumer(ConsumerBase):
+class CassandraConsumer(Object):
     on = CassandraConsumerEvents()
 
-    def __init__(self, charm, name, consumes, multi=False):
-        super().__init__(charm, name, consumes, multi)
+    def __init__(self, charm, name):
+        super().__init__(charm, name)
         self.charm = charm
         self.relation_name = name
         events = self.charm.on[name]
@@ -339,12 +314,13 @@ class CassandraProviderEvents(ObjectEvents):
     data_changed = EventSource(DataChangedEvent)
 
 
-class CassandraProvider(ProviderBase):
+class CassandraProvider(Object):
     on = CassandraProviderEvents()
 
-    def __init__(self, charm, name, service, version=None):
-        super().__init__(charm, name, service, version)
+    def __init__(self, charm, name):
+        super().__init__(charm, name)
         self.charm = charm
+        self.name = name
         events = self.charm.on[name]
         self.framework.observe(events.relation_changed, self.on_relation_changed)
 
