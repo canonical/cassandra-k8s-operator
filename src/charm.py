@@ -41,7 +41,7 @@ from charms.cassandra_k8s.v0.cassandra import (
     status_catcher,
 )
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardConsumer
-from charms.prometheus_k8s.v0.prometheus import PrometheusConsumer
+from charms.prometheus_k8s.v0.prometheus import MetricsEndpointProvider
 from ops.charm import CharmBase
 from ops.main import main
 from ops.model import ActiveStatus, BlockedStatus, MaintenanceStatus, ModelError
@@ -97,15 +97,12 @@ class CassandraOperatorCharm(CharmBase):
             self.on_cassandra_peers_departed,
         )
         # TODO: We need to query the version from the database itself
-        self.provider = CassandraProvider(
-            charm=self, name="database", service="cassandra", version="3.11"
-        )
+        self.provider = CassandraProvider(charm=self, name="database")
         self.framework.observe(self.provider.on.data_changed, self.on_provider_data_changed)
 
-        self.prometheus_consumer = PrometheusConsumer(
+        self.prometheus_consumer = MetricsEndpointProvider(
             charm=self,
             name="monitoring",
-            consumes={"prometheus": ">=2"},
             service_event=self.on.cassandra_pebble_ready,
             jobs=[
                 {
@@ -418,9 +415,6 @@ class CassandraOperatorCharm(CharmBase):
 
         if self.unit.is_leader():
             self._root_password()
-
-        if self.unit.is_leader():
-            self.provider.ready()
 
         self.unit.status = ActiveStatus()
         logger.debug("Pod spec set successfully.")
