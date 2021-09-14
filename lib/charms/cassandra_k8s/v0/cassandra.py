@@ -108,8 +108,9 @@ import json
 import logging
 from typing import Optional
 
+from ops.charm import CharmBase
 from ops.framework import EventBase, EventSource, Object, ObjectEvents
-from ops.model import BlockedStatus, MaintenanceStatus, WaitingStatus
+from ops.model import BlockedStatus, MaintenanceStatus, WaitingStatus, Relation
 
 LIBID = "fab458c53af54b0fa7ff696d71e243c1"
 LIBAPI = 0
