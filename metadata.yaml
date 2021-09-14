@@ -25,7 +25,6 @@ provides:
     interface: cql
   monitoring:
     interface: prometheus_scrape
-requires:
   grafana-dashboard:
     interface: grafana_dashboard
 peers:
