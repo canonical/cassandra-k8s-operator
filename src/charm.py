@@ -157,9 +157,15 @@ class CassandraOperatorCharm(CharmBase):
         if isinstance(self.unit.status, BlockedStatus) and "dashboard" in self.unit.status.message:
             self.unit.status = ActiveStatus()
 
-        dashboard_tmpl = open(os.path.join(sys.path[0], "dashboard.json.tmpl"), "r").read()
+        dashboards = {
+            "cluster": "cluster-overview.json.tmpl",
+            "node": "node-overview.json.tmpl",
+            "table": "table-details.json.tmpl",
+        }
 
-        self.dashboard_consumer.add_dashboard(dashboard_tmpl)
+        for d, tmpl in dashboards.items():
+            dashboard_tmpl = open(os.path.join(sys.path[0], tmpl), "r").read()
+            self.dashboard_consumer.add_dashboard(dashboard_tmpl, d)
 
     def on_dashboard_broken(self, event):
         self.dashboard_consumer.remove_dashboard()
