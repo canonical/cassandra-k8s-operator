@@ -236,6 +236,10 @@ class CassandraOperatorCharm(CharmBase):
         self.provider.set_databases(event.rel_id, dbs)
 
     def _configure(self, event: EventBase) -> bool:
+        container = self.unit.get_container("cassandra")
+        if not container.can_connect():
+            return
+
         heap_size = self.model.config["heap_size"]
 
         if match(r"^\d+[KMG]$", heap_size, IGNORECASE) is None:
@@ -259,7 +263,6 @@ class CassandraOperatorCharm(CharmBase):
 
         if not (conf := self._config_file(event)):
             return False
-        container = self.unit.get_container("cassandra")
         if yaml.safe_load(container.pull(CONFIG_PATH).read()) != yaml.safe_load(conf):  # type: ignore
             container.push(CONFIG_PATH, conf)
             needs_restart = True
