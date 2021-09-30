@@ -17,9 +17,7 @@
 import contextlib
 import json
 import logging
-import os
 import subprocess
-import sys
 from re import IGNORECASE, match
 
 import yaml
