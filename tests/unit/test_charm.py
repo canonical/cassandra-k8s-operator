@@ -22,9 +22,11 @@ class FakeConnection:
         return self
 
     def __enter__(self):
+        """Enter Method."""
         return self
 
     def __exit__(self, x_type, x_value, x_traceback):
+        """Exit Method."""
         pass
 
     def execute(self, query, wildcards=None):

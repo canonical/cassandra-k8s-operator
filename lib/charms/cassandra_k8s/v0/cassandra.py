@@ -1,4 +1,8 @@
-"""
+# Copyright 2020 Canonical Ltd.
+# See LICENSE file for licensing details.
+
+"""# cassandra charm library.
+
 ## Overview
 
 This document explains how to integrate with the Cassandra charm for the
@@ -100,107 +104,89 @@ list of database names can be provided to.
         ...
 """
 
-# Copyright 2020 Canonical Ltd.
-# See LICENSE file for licensing details.
-
-import functools
 import json
 import logging
 from typing import Optional
 
 from ops.charm import CharmBase
 from ops.framework import EventBase, EventSource, Object, ObjectEvents
-from ops.model import BlockedStatus, MaintenanceStatus, WaitingStatus, Relation
+from ops.model import Relation
 
 LIBID = "fab458c53af54b0fa7ff696d71e243c1"
 LIBAPI = 0
-LIBPATCH = 1
+LIBPATCH = 2
 logger = logging.getLogger(__name__)
 
 
-class DeferEventError(Exception):
-    def __init__(self, reason: str, status_message: str):
-        super().__init__()
-        self.reason = reason
-        self.status_message = status_message
-
-
-class BlockedStatusError(Exception):
-    pass
-
-
-class WaitingStatusError(Exception):
-    pass
-
-
-def status_catcher(func):
-    @functools.wraps(func)
-    def new_func(self, *args, **kwargs):
-        try:
-            func(self, *args, **kwargs)
-        except DeferEventError as e:
-            if len(args) >= 1 and isinstance(args[0], EventBase):
-                event = args[0]
-            else:
-                logger.error("Can not defer: No event")
-                raise
-            logger.info("Defering event: %s because: %s", event, e.reason)
-            self.unit.status = MaintenanceStatus(e.status_message)
-            event.defer()
-        except BlockedStatusError as e:
-            self.unit.status = BlockedStatus(str(e))
-        except WaitingStatusError as e:
-            self.unit.status = WaitingStatus(str(e))
-
-    return new_func
-
-
 class CassandraConsumerError(Exception):
+    """Error base class."""
+
     pass
 
 
 class NameDuplicateError(CassandraConsumerError):
+    """Duplicate db names."""
+
     pass
 
 
 class NameLengthError(CassandraConsumerError):
+    """Name is too long."""
+
     pass
 
 
 class DatabasesChangedEvent(EventBase):
-    """Event emitted when the relation data has changed"""
+    """Event emitted when the relation data has changed."""
 
     def __init__(self, handle, rel_id: int):
         super().__init__(handle)
         self.rel_id = rel_id
 
     def snapshot(self):
+        """Snapshot the event."""
         return {"rel_id": self.rel_id}
 
     def restore(self, snapshot):
+        """Restore the event."""
         self.rel_id = snapshot["rel_id"]
 
 
 class CassandraConsumerEvents(ObjectEvents):
+    """Consumer events object."""
+
     databases_changed = EventSource(DatabasesChangedEvent)
 
 
 class CassandraConsumer(Object):
+    """Cassandra consumer object."""
+
     on = CassandraConsumerEvents()
 
     def __init__(self, charm: CharmBase, name: str):
+        """Constructor fot the CassandraConsumer object.
+
+        Args:
+            charm: The charm object that instantiated this class.
+            name: The name of the cql relation.
+        """
         super().__init__(charm, name)
         self.charm = charm
         self.relation_name = name
         events = self.charm.on[name]
-        self.framework.observe(events.relation_changed, self.on_relation_changed)
+        self.framework.observe(events.relation_changed, self._on_relation_changed)
 
-    def on_relation_changed(self, event: EventBase) -> None:
+    def _on_relation_changed(self, event: EventBase) -> None:
+        """Handle a relation changed event.
+
+        Args:
+            event: The event object.
+        """
         self.on.databases_changed.emit(rel_id=event.relation.id)
 
     def credentials(self, rel_id: Optional[int] = None) -> tuple:
-        """
-        Returns a dict of credentials
+        """Returns a dict of credentials.
+
         {"username": <username>, "password": <password>}
 
         Args:
@@ -274,17 +260,29 @@ class CassandraConsumer(Object):
         return rel.data[rel.app].get("address")
 
     def _requested_databases(self, relation: Relation) -> list:
-        """Return the list of requested databases."""
+        """Return the list of requested databases.
+
+        Args:
+            relation: The relevant relation object.
+
+        Returns:
+            A list of database names
+        """
         dbs_json = relation.data[self.charm.app].get("requested_databases", "[]")
         return json.loads(dbs_json)
 
     def _set_requested_databases(self, relation: Relation, requested_databases: list) -> None:
-        """Set the list of requested databases."""
+        """Set the list of requested databases.
+
+        Args:
+            relation: The relevant relation object.
+            requested_databases: A list of database names
+        """
         relation.data[self.charm.app]["requested_databases"] = json.dumps(requested_databases)
 
 
 class DataChangedEvent(EventBase):
-    """Event emitted when the relation data has changed"""
+    """Event emitted when the relation data has changed."""
 
     def __init__(self, handle, rel_id: int, app_name: str):
         super().__init__(handle)
@@ -292,28 +290,46 @@ class DataChangedEvent(EventBase):
         self.app_name = app_name
 
     def snapshot(self):
+        """Snapshot the event."""
         return {"rel_id": self.rel_id, "app_name": self.app_name}
 
     def restore(self, snapshot):
+        """Restore the event."""
         self.rel_id = snapshot["rel_id"]
         self.app_name = snapshot["app_name"]
 
 
 class CassandraProviderEvents(ObjectEvents):
+    """Provider events object."""
+
     data_changed = EventSource(DataChangedEvent)
 
 
 class CassandraProvider(Object):
+    """Cassandra provider object."""
+
     on = CassandraProviderEvents()
 
     def __init__(self, charm: CharmBase, name: str):
+        """Constructor for CassandraProvider.
+
+        Args:
+            charm: The charm object that instantiated this class.
+            name: The name of the cql relation.
+        """
         super().__init__(charm, name)
         self.charm = charm
         self.name = name
         events = self.charm.on[name]
-        self.framework.observe(events.relation_changed, self.on_relation_changed)
+        self.framework.observe(events.relation_changed, self._on_relation_changed)
 
     def update_port(self, relation_name: str, port: int) -> None:
+        """Update the port which Cassandra is listening on.
+
+        Args:
+            relation_name: The name of the cql relation.
+            port: The port number.
+        """
         if self.charm.unit.is_leader():
             for relation in self.charm.model.relations[relation_name]:
                 logger.info("Setting port data for relation %s", relation)
@@ -321,6 +337,12 @@ class CassandraProvider(Object):
                     relation.data[self.charm.app]["port"] = str(port)
 
     def update_address(self, relation_name: str, address: str) -> None:
+        """Update the address which Cassandra is listening on.
+
+        Args:
+            relation_name: The name of the cql relation.
+            address: The address which Cassandra is listening on.
+        """
         if self.charm.unit.is_leader():
             for relation in self.charm.model.relations[relation_name]:
                 logger.info("Setting address data for relation %s", relation)
@@ -328,31 +350,70 @@ class CassandraProvider(Object):
                     relation.data[self.charm.app]["address"] = str(address)
 
     def credentials(self, rel_id: int) -> tuple:
+        """Return the set credentials.
+
+        Args:
+            rel_id: Relation id to look up credentials for.
+        Returns: A (username, password) tuple.
+        """
         rel = self.framework.model.get_relation(self.name, rel_id)
         creds_json = rel.data[self.charm.app].get("credentials", "[]")
         return json.loads(creds_json)
 
     def set_credentials(self, rel_id: int, creds) -> None:
+        """Set the credentials for a related charm.
+
+        Args:
+            rel_id: Relation id to set credentials for.
+            creds: A tuple or list of the form (username, password).
+        """
         rel = self.framework.model.get_relation(self.name, rel_id)
         rel.data[self.charm.app]["credentials"] = json.dumps(creds)
 
     def requested_databases(self, rel_id: int) -> list:
+        """Return a list of the requested databases.
+
+        Args:
+            rel_id: The relation to return data from.
+
+        Returns:
+            A list of database names.
+        """
         rel = self.framework.model.get_relation(self.name, rel_id)
         return json.loads(rel.data[rel.app].get("requested_databases", "[]"))
 
     def databases(self, rel_id: int) -> list:
+        """Return a list of the existing databases.
+
+        Args:
+            rel_id: The relation to return data from.
+
+        Returns:
+            A list of database names.
+        """
         rel = self.framework.model.get_relation(self.name, rel_id)
         return json.loads(rel.data[self.charm.app].get("databases") or "[]")
 
     def set_databases(self, rel_id: int, dbs: list) -> None:
+        """Set the list of the requested databases.
+
+        Args:
+            rel_id: The relation to return data from.
+            dbs: A list of database names to request.
+        """
         rel = self.framework.model.get_relation(self.name, rel_id)
         rel.data[self.charm.app]["databases"] = json.dumps(dbs)
 
-    def on_relation_changed(self, event: EventBase) -> None:
+    def _on_relation_changed(self, event: EventBase) -> None:
+        """Handle the relation changed event.
+
+        Args:
+            event: The event object.
+        """
         self.on.data_changed.emit(event.relation.id, event.app.name)
 
 
 def sanitize_name(name: str) -> str:
-    """Make a name safe for use as a keyspace name"""
+    """Make a name safe for use as a keyspace name."""
     # For now just change dashes to underscores. Fix this more in the future
     return name.replace("-", "_")

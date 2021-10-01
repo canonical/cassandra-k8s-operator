@@ -1,6 +1,8 @@
 # Copyright 2020 Canonical Ltd.
 # See LICENSE file for licensing details.
 
+"""Cassandra Server Object."""
+
 import contextlib
 import logging
 import secrets
@@ -30,15 +32,16 @@ logger = logging.getLogger(__name__)
 
 
 class ClusterNotReadyError(Exception):
+    """Exception to raise when the cluster is not ready."""
+
     pass
 
 
 class Cassandra:
-    """Class to manage connections to the Cassandra cluster"""
+    """Class to manage connections to the Cassandra cluster."""
 
     def __init__(self, charm: CharmBase):
-        """
-        Cassandra class constructor
+        """Cassandra class constructor.
 
         Args:
             charm: The charm that is using this class
@@ -49,7 +52,7 @@ class Cassandra:
     def connect(
         self, event: EventBase, username: str = ROOT_USER, password: Optional[str] = None
     ) -> Session:
-        """Context manager to connect to the Cassandra cluster and return an active session
+        """Context manager to connect to the Cassandra cluster and return an active session.
 
         Args:
             event: The current event object
@@ -77,7 +80,7 @@ class Cassandra:
             cluster.shutdown
 
     def create_user(self, event: EventBase, username: str) -> List[str]:
-        """Create a new Cassandra user
+        """Create a new Cassandra user.
 
         Args:
             event: The current event object
@@ -101,7 +104,7 @@ class Cassandra:
         return [username, password]
 
     def create_db(self, event: EventBase, db_name: str, user: str, replication: int) -> bool:
-        """Create a new keyspace and grant all permissions to user
+        """Create a new keyspace and grant all permissions to user.
 
         Args:
             event: The current event object
@@ -124,8 +127,10 @@ class Cassandra:
         return True
 
     def root_password(self, event) -> str:
-        """If the root password is already set, return it. If the root password is not already
-        set, generate a new one.
+        """Return the root password.
+
+        If the root password is already set, return it. If the root password is not already set,
+        generate a new one.
 
         Returns:
             The root password
@@ -188,7 +193,7 @@ class Cassandra:
 
     @staticmethod
     def _generate_password() -> str:
-        """Generate a random password
+        """Generate a random password.
 
         Returns:
             The generated password

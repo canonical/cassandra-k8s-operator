@@ -3,6 +3,8 @@
 # Copyright 2020 Canonical Ltd.
 # See LICENSE file for licensing details.
 
+"""Cassandra Operator Charm."""
+
 import json
 import logging
 import os
@@ -18,7 +20,7 @@ from charms.prometheus_k8s.v0.prometheus import MetricsEndpointProvider
 from ops.charm import CharmBase
 from ops.framework import EventBase
 from ops.main import main
-from ops.model import ActiveStatus, BlockedStatus, MaintenanceStatus, ModelError
+from ops.model import ActiveStatus, BlockedStatus, MaintenanceStatus
 from ops.pebble import APIError, ConnectionError
 
 from cassandra_server import CQL_PORT, Cassandra
@@ -36,29 +38,11 @@ PROMETHEUS_EXPORTER_FILE = "prometheus_exporter_javaagent.jar"
 PROMETHEUS_EXPORTER_PATH = f"{PROMETHEUS_EXPORTER_DIR}/{PROMETHEUS_EXPORTER_FILE}"
 
 
-def restart(container):
-    logger.info("Restarting cassandra")
-    try:
-        if container.get_service("cassandra").is_running():
-            container.stop("cassandra")
-        container.start("cassandra")
-    except ModelError as e:
-        if str(e) != "service 'cassandra' not found":
-            raise
-
-
-def make_started(container):
-    try:
-        if not container.get_service("cassandra").is_running():
-            logger.info("Starting Cassandra")
-            container.start("cassandra")
-    except ModelError as e:
-        if str(e) != "service 'cassandra' not found":
-            raise
-
-
 class CassandraOperatorCharm(CharmBase):
+    """Charm object for the Cassandra charm."""
+
     def __init__(self, *args):
+        """Constructor for a CassandraOperatorCharm."""
         super().__init__(*args)
         self.framework.observe(self.on.cassandra_pebble_ready, self.on_pebble_ready)
         self.framework.observe(self.on.config_changed, self.on_config_changed)
@@ -105,25 +89,57 @@ class CassandraOperatorCharm(CharmBase):
         self.cassandra = Cassandra(charm=self)
 
     def on_pebble_ready(self, event: EventBase) -> None:
+        """Run the pebble ready hook.
+
+        Args:
+            event: the event object
+        """
         if self._configure(event) is False:
             return
         container = event.workload
         if len(self.model.relations["monitoring"]) > 0:
             self._setup_monitoring()
-        make_started(container)
-        self.provider.update_address("database", self._bind_address())
+        if not container.get_service("cassandra").is_running():
+            logger.info("Starting Cassandra")
+            container.start("cassandra")
+        if (bind_address := self._bind_address()) is None:
+            self.unit.status = MaintenanceStatus("Waiting for IP address")
+            event.defer()
+        self.provider.update_address("database", bind_address)  # type: ignore
 
-    def on_config_changed(self, event) -> None:
+    def on_config_changed(self, event: EventBase) -> None:
+        """Run the config changed hook.
+
+        Args:
+            event: the event object
+        """
         self._configure(event)
 
-    def on_leader_elected(self, _):
-        self.provider.update_address("database", self._bind_address())
+    def on_leader_elected(self, event):
+        """R the leader elected hook.
 
-    def on_database_joined(self, _):
+        Args:
+            event: the event object
+        """
+        if (bind_address := self._bind_address()) is None:
+            self.unit.status = MaintenanceStatus("Waiting for IP address")
+            event.defer()
+        self.provider.update_address("database", bind_address)  # type: ignore
+
+    def on_database_joined(self, event):
+        """Run the joined hook for the database relation.
+
+        Args:
+            event: the event object
+        """
         self.provider.update_port("database", CQL_PORT)
-        self.provider.update_address("database", self._bind_address())
+        if (bind_address := self._bind_address()) is None:
+            self.unit.status = MaintenanceStatus("Waiting for IP address")
+            event.defer()
+        self.provider.update_address("database", bind_address)  # type: ignore
 
     def on_dashboard_joined(self, _) -> None:
+        """Run the joined hook for the dashboard relation."""
         if not self.unit.is_leader():
             return
 
@@ -135,11 +151,17 @@ class CassandraOperatorCharm(CharmBase):
         self.dashboard_consumer.add_dashboard(dashboard_tmpl)
 
     def on_dashboard_broken(self, _) -> None:
+        """Run the broken hook for the dashboard relation."""
         self.dashboard_consumer.remove_dashboard()
         if isinstance(self.unit.status, BlockedStatus) and "dashboard" in self.unit.status.message:
             self.unit.status = ActiveStatus()
 
     def on_dashboard_status_changed(self, event: EventBase) -> None:
+        """Run the dashboard status changed hook.
+
+        Args:
+            event: the event object
+        """
         if event.valid:
             self._dashboard_valid = True
             self.unit.status = ActiveStatus()
@@ -148,6 +170,7 @@ class CassandraOperatorCharm(CharmBase):
             self.unit.status = BlockedStatus(event.error_message)
 
     def on_monitoring_joined(self, _) -> None:
+        """Run the joined hook for the monitoring relation."""
         self._setup_monitoring()
 
     def _reset_monitoring(self) -> None:
@@ -166,7 +189,7 @@ class CassandraOperatorCharm(CharmBase):
             container = self.unit.get_container("cassandra")
             cassandra_env = container.pull(ENV_PATH).read()
             restart_required = False
-            if "jmx_prometheus_javaagent" not in cassandra_env:
+            if PROMETHEUS_EXPORTER_PATH not in cassandra_env:
                 restart_required = True
                 container.push(
                     ENV_PATH,
@@ -192,37 +215,64 @@ class CassandraOperatorCharm(CharmBase):
                     container.push(path=PROMETHEUS_EXPORTER_PATH, source=f, make_dirs=True)
 
             if restart_required:
-                restart(container)
+                try:
+                    container.restart("cassandra")
+                except APIError as e:
+                    if str(e) == 'service "cassandra" does not exist':
+                        # The service has not yet been created. This is okay.
+                        pass
+                    else:
+                        raise
 
     def on_monitoring_broken(self, _) -> None:
+        """Run the broken hook for the monitoring relation.
+
+        Args:
+            event: the event object
+        """
         # If there are no monitoring relations, disable metrics
         if len(self.model.relations["monitoring"]) == 0:
             try:
                 container = self.unit.get_container("cassandra")
                 cassandra_env = container.pull(ENV_PATH).readlines()
                 for line in cassandra_env:
-                    if "jmx_prometheus_javaagent" in line:
+                    if PROMETHEUS_EXPORTER_PATH in line:
                         cassandra_env.remove(line)
                         container.push(ENV_PATH, "\n".join(cassandra_env))
-                        restart(container)
+                        container.restart("cassandra")
                         break
                 container.remove_path(PROMETHEUS_EXPORTER_PATH)
             except ConnectionError:
                 logger.warning("Could not disable monitoring. Could not connect to Pebble.")
 
     def on_cassandra_peers_changed(self, event) -> None:
+        """Run the relation changed hook for the peer relation.
+
+        Args:
+            event: the event object
+        """
         self._configure(event)
 
     def on_cassandra_peers_departed(self, event) -> None:
+        """Run the departed hook for the peer relation.
+
+        Args:
+            event: the event object
+        """
         self._configure(event)
 
     def on_provider_data_changed(self, event: EventBase) -> None:
+        """Run the provider data changed hook.
+
+        Args:
+            event: the event object
+        """
         if not self.unit.is_leader():
             return
         creds = self.provider.credentials(event.rel_id)
         if creds == []:
             username = f"juju-user-{event.app_name}"
-            if not (creds := self.cassandra.create_user(event, username)):
+            if not (creds := self.cassandra.create_user(event, username)):  # type: ignore
                 return
             self.provider.set_credentials(event.rel_id, creds)
 
@@ -238,7 +288,7 @@ class CassandraOperatorCharm(CharmBase):
     def _configure(self, event: EventBase) -> bool:
         container = self.unit.get_container("cassandra")
         if not container.can_connect():
-            return
+            return True
 
         heap_size = self.model.config["heap_size"]
 
@@ -263,19 +313,19 @@ class CassandraOperatorCharm(CharmBase):
 
         if not (conf := self._config_file(event)):
             return False
-        if yaml.safe_load(container.pull(CONFIG_PATH).read()) != yaml.safe_load(conf):  # type: ignore
+        if yaml.safe_load(container.pull(CONFIG_PATH).read()) != yaml.safe_load(conf):
             container.push(CONFIG_PATH, conf)
             needs_restart = True
 
         if not (layer := self._build_layer(event)):
             return False
         services = container.get_plan().to_dict().get("services", {})
-        if services != layer["services"]:  # type: ignore
+        if services != layer["services"]:
             container.add_layer("cassandra", layer, combine=True)
             needs_restart = True
 
         if needs_restart:
-            restart(container)
+            container.restart("cassandra")
 
         if self.unit.is_leader():
             if not self.cassandra.root_password(event):
