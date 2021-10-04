@@ -5,12 +5,12 @@ import json
 import unittest
 from unittest.mock import patch
 
-import cassandra.cluster
 import ops.model
 import ops.testing
 import yaml
 from ops.testing import Harness
 
+import cassandra_server
 from charm import CassandraOperatorCharm
 
 
@@ -18,7 +18,7 @@ class FakeConnection:
     def __init__(self, responses=None):
         self.responses = responses if responses is not None else {}
 
-    def __call__(self, event=None):
+    def __call__(self, event=None, username=None, password=None):
         return self
 
     def __enter__(self):
@@ -46,7 +46,7 @@ partitioner: org.apache.cassandra.dht.Murmur3Partitioner
 seed_provider:
 - class_name: org.apache.cassandra.locator.SimpleSeedProvider
   parameters:
-  - seeds: "1.1.1.1"
+  - seeds: "cassandra-k8s-0.cassandra-k8s-endpoints.None.svc.cluster.local"
 start_native_transport: 'true'
 """
 
@@ -71,7 +71,7 @@ class ConfigFile:
         return self.content
 
 
-@patch.object(cassandra.cluster.Cluster, "connect", new=FakeConnection())
+@patch.object(cassandra_server.Cassandra, "connect", new=FakeConnection())
 @patch.object(CassandraOperatorCharm, "_goal_units", new=lambda x: 1)
 @patch.object(CassandraOperatorCharm, "_bind_address", new=lambda x: "1.1.1.1")
 @patch.object(ops.model.Container, "pull", new=fake_pull)
@@ -102,7 +102,7 @@ class TestCharm(unittest.TestCase):
         )
         self.assertEqual(
             self.harness.get_relation_data(rel_id, self.harness.model.app.name)["address"],
-            "1.1.1.1",
+            "cassandra-k8s-0.cassandra-k8s-endpoints.None.svc.cluster.local",
         )
 
     def test_request_db(self):

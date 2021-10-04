@@ -102,10 +102,7 @@ class CassandraOperatorCharm(CharmBase):
         if not container.get_service("cassandra").is_running():
             logger.info("Starting Cassandra")
             container.start("cassandra")
-        if (bind_address := self._bind_address()) is None:
-            self.unit.status = MaintenanceStatus("Waiting for IP address")
-            event.defer()
-        self.provider.update_address("database", bind_address)  # type: ignore
+        self.provider.update_address("database", self._hostname())
 
     def on_config_changed(self, event: EventBase) -> None:
         """Run the config changed hook.
@@ -116,15 +113,12 @@ class CassandraOperatorCharm(CharmBase):
         self._configure(event)
 
     def on_leader_elected(self, event):
-        """R the leader elected hook.
+        """Run the leader elected hook.
 
         Args:
             event: the event object
         """
-        if (bind_address := self._bind_address()) is None:
-            self.unit.status = MaintenanceStatus("Waiting for IP address")
-            event.defer()
-        self.provider.update_address("database", bind_address)  # type: ignore
+        self.provider.update_address("database", self._hostname())
 
     def on_database_joined(self, event):
         """Run the joined hook for the database relation.
@@ -133,10 +127,7 @@ class CassandraOperatorCharm(CharmBase):
             event: the event object
         """
         self.provider.update_port("database", CQL_PORT)
-        if (bind_address := self._bind_address()) is None:
-            self.unit.status = MaintenanceStatus("Waiting for IP address")
-            event.defer()
-        self.provider.update_address("database", bind_address)  # type: ignore
+        self.provider.update_address("database", self._hostname())
 
     def on_dashboard_joined(self, _) -> None:
         """Run the joined hook for the dashboard relation."""
@@ -301,13 +292,8 @@ class CassandraOperatorCharm(CharmBase):
             event.defer()
             return False
 
-        if (bind_address := self._bind_address()) is None:
-            self.unit.status = MaintenanceStatus("Waiting for IP address")
-            event.defer()
-            return False
-
         peer_rel = self.model.get_relation("cassandra-peers")
-        peer_rel.data[self.unit]["peer_address"] = bind_address
+        peer_rel.data[self.unit]["peer_address"] = self._hostname()
 
         needs_restart = False
 
@@ -358,11 +344,7 @@ class CassandraOperatorCharm(CharmBase):
         return layer
 
     def _seeds(self, event) -> str:
-        if (bind_address := self._bind_address()) is None:
-            self.unit.status = MaintenanceStatus("Waiting for IP address")
-            event.defer()
-            return ""
-        peers = [bind_address]
+        peers = [self._hostname()]
         rel = self.model.get_relation("cassandra-peers")
         for unit in rel.units:
             if (addr := rel.data[unit].get("peer_address")) is None:
@@ -383,6 +365,14 @@ class CassandraOperatorCharm(CharmBase):
         # See https://github.com/canonical/operator/pull/453
         goal_state = json.loads(subprocess.check_output(["goal-state", "--format", "json"]))
         return len(goal_state["units"])
+
+    def _hostname(self) -> str:
+        """Return the hostname of the unit pod.
+
+        Returns:
+            The pod hostname
+        """
+        return f"{self.unit.name.replace('/','-')}.{self.app.name}-endpoints.{self.model.name}.svc.cluster.local"
 
     def _bind_address(self, timeout=60) -> Optional[str]:
         try:

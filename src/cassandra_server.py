@@ -67,7 +67,7 @@ class Cassandra:
         auth_provider = PlainTextAuthProvider(username=username, password=password)
         profile = ExecutionProfile(load_balancing_policy=RoundRobinPolicy())
         cluster = Cluster(
-            [self.charm._bind_address()],
+            [self.charm._hostname()],
             port=CQL_PORT,
             auth_provider=auth_provider,
             execution_profiles={EXEC_PROFILE_DEFAULT: profile},
