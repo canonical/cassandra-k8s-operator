@@ -65,7 +65,7 @@ class CassandraOperatorCharm(CharmBase):
             service_event=self.on.cassandra_pebble_ready,
             jobs=[
                 {
-                    "static_configs": [{"targets": ["*:{}".format(PROMETHEUS_EXPORTER_PORT)]}],
+                    "static_configs": [{"targets": [f"*:{PROMETHEUS_EXPORTER_PORT}"]}],
                 }
             ],
         )
@@ -184,19 +184,14 @@ class CassandraOperatorCharm(CharmBase):
                 restart_required = True
                 container.push(
                     ENV_PATH,
-                    '{}\nJVM_OPTS="$JVM_OPTS -javaagent:{}"'.format(
-                        cassandra_env, PROMETHEUS_EXPORTER_PATH
-                    ),
+                    f'{cassandra_env}\nJVM_OPTS="$JVM_OPTS -javaagent:{PROMETHEUS_EXPORTER_PATH}"',
                 )
-
             try:
                 container.list_files(PROMETHEUS_EXPORTER_PATH)
             except APIError:
                 restart_required = True
                 logger.debug(
-                    "Pushing Prometheus exporter to container to {}".format(
-                        PROMETHEUS_EXPORTER_PATH
-                    )
+                    "Pushing Prometheus exporter to container to %s", PROMETHEUS_EXPORTER_PATH
                 )
 
                 with open(

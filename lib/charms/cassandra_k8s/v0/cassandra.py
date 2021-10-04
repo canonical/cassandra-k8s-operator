@@ -224,12 +224,8 @@ class CassandraConsumer(Object):
         rel = self.framework.model.get_relation(self.relation_name, rel_id)
 
         if name_suffix:
-            name_suffix = "_{}".format(name_suffix)
-        db_name = "juju_db_{}_{}{}".format(
-            sanitize_name(self.charm.model.name),
-            sanitize_name(self.charm.app.name),
-            sanitize_name(name_suffix),
-        )
+            name_suffix = f"_{name_suffix}"
+        db_name = f"juju_db_{sanitize_name(self.charm.model.name)}_{sanitize_name(self.charm.app.name)}{sanitize_name(name_suffix)}"
         # Cassandra does not allow keyspace names longer than 48 characters
         if len(db_name) > 48:
             raise NameLengthError("Database name can not be more than 48 characters")
