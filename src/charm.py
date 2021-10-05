@@ -7,9 +7,9 @@
 
 import json
 import logging
-import os
 import subprocess
 import sys
+from pathlib import Path
 from re import IGNORECASE, match
 from typing import Optional
 
@@ -21,7 +21,7 @@ from ops.charm import CharmBase
 from ops.framework import EventBase
 from ops.main import main
 from ops.model import ActiveStatus, BlockedStatus, MaintenanceStatus
-from ops.pebble import APIError, ConnectionError
+from ops.pebble import APIError
 
 from cassandra_server import CQL_PORT, Cassandra
 
@@ -112,20 +112,12 @@ class CassandraOperatorCharm(CharmBase):
         """
         self._configure(event)
 
-    def on_leader_elected(self, event):
-        """Run the leader elected hook.
-
-        Args:
-            event: the event object
-        """
+    def on_leader_elected(self, _):
+        """Run the leader elected hook."""
         self.provider.update_address("database", self._hostname())
 
     def on_database_joined(self, event):
-        """Run the joined hook for the database relation.
-
-        Args:
-            event: the event object
-        """
+        """Run the joined hook for the database relation."""
         self.provider.update_port("database", CQL_PORT)
         self.provider.update_address("database", self._hostname())
 
@@ -134,12 +126,12 @@ class CassandraOperatorCharm(CharmBase):
         if not self.unit.is_leader():
             return
 
+        dashboard_path = Path(sys.path[0]) / "dashboard.json.tmpl"
+        with dashboard_path.open() as f:
+            self.dashboard_consumer.add_dashboard(f.read())
+
         if isinstance(self.unit.status, BlockedStatus) and "dashboard" in self.unit.status.message:
             self.unit.status = ActiveStatus()
-
-        dashboard_tmpl = open(os.path.join(sys.path[0], "dashboard.json.tmpl"), "r").read()
-
-        self.dashboard_consumer.add_dashboard(dashboard_tmpl)
 
     def on_dashboard_broken(self, _) -> None:
         """Run the broken hook for the dashboard relation."""
@@ -164,19 +156,10 @@ class CassandraOperatorCharm(CharmBase):
         """Run the joined hook for the monitoring relation."""
         self._setup_monitoring()
 
-    def _reset_monitoring(self) -> None:
-        if not self.unit.is_leader():
-            return
-        if len(self.model.relations["monitoring"]) > 0:
-            for endpoint in self.prometheus_consumer.endpoints:
-                address, port = endpoint.split(":")
-                self.prometheus_consumer.remove_endpoint(address=address, port=int(port))
-            self._setup_monitoring()
-
     def _setup_monitoring(self) -> None:
         # Turn on metrics exporting. This should be on on ALL NODES, since it does not
         # export per node cluster metrics with the default JMX exporter
-        if len(self.model.relations["monitoring"]) > 0:
+        if self.model.relations["monitoring"]:
             container = self.unit.get_container("cassandra")
             cassandra_env = container.pull(ENV_PATH).read()
             restart_required = False
@@ -217,8 +200,9 @@ class CassandraOperatorCharm(CharmBase):
             event: the event object
         """
         # If there are no monitoring relations, disable metrics
-        if len(self.model.relations["monitoring"]) == 0:
-            try:
+        if not self.model.relations["monitoring"]:
+            container = self.unit.get_container("cassandra")
+            if container.can_connect():
                 container = self.unit.get_container("cassandra")
                 cassandra_env = container.pull(ENV_PATH).readlines()
                 for line in cassandra_env:
@@ -228,8 +212,6 @@ class CassandraOperatorCharm(CharmBase):
                         container.restart("cassandra")
                         break
                 container.remove_path(PROMETHEUS_EXPORTER_PATH)
-            except ConnectionError:
-                logger.warning("Could not disable monitoring. Could not connect to Pebble.")
 
     def on_cassandra_peers_changed(self, event) -> None:
         """Run the relation changed hook for the peer relation.
@@ -256,7 +238,8 @@ class CassandraOperatorCharm(CharmBase):
         if not self.unit.is_leader():
             return
         creds = self.provider.credentials(event.rel_id)
-        if creds == []:
+        if not creds:
+            # Create a user for the related charm to use.
             username = f"juju-user-{event.app_name}"
             if not (creds := self.cassandra.create_user(event, username)):  # type: ignore
                 return
