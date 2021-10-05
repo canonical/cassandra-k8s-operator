@@ -145,7 +145,7 @@ class Cassandra:
             event.defer()
             return ""
 
-        # First create a new superuser
+        # Use the default creds to create a new superuser
         try:
             with self.connect(event, username="cassandra", password="cassandra") as session:
                 # Set system_auth replication here once we have one shot commands in pebble

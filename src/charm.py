@@ -5,9 +5,7 @@
 
 """Cassandra Operator Charm."""
 
-import json
 import logging
-import subprocess
 import sys
 from pathlib import Path
 from re import IGNORECASE, match
@@ -259,7 +257,7 @@ class CassandraOperatorCharm(CharmBase):
         if not container.can_connect():
             return True
 
-        heap_size = self.model.config["heap_size"]
+        heap_size = self.config["heap_size"]
 
         if match(r"^\d+[KMG]$", heap_size, IGNORECASE) is None:
             self.unit.status = BlockedStatus(f"Invalid Cassandra heap size setting: '{heap_size}'")
@@ -296,14 +294,13 @@ class CassandraOperatorCharm(CharmBase):
                 return False
 
         self.unit.status = ActiveStatus()
-        logger.debug("Pod spec set successfully.")
         return True
 
     def _build_layer(self, event) -> dict:
-        heap_size = self.model.config["heap_size"]
+        heap_size = self.config["heap_size"]
         if not (seeds := self._seeds(event)):
             return {}
-        layer = {
+        return {
             "summary": "Cassandra Layer",
             "description": "pebble config layer for Cassandra",
             "services": {
@@ -319,7 +316,6 @@ class CassandraOperatorCharm(CharmBase):
                 }
             },
         }
-        return layer
 
     def _seeds(self, event) -> str:
         peers = [self._hostname()]
@@ -331,6 +327,7 @@ class CassandraOperatorCharm(CharmBase):
                 return ""
             peers.append(addr)
         peers.sort()
+        # Cassandra documentation recommends 3 seeds
         return ",".join(peers[:3])
 
     def _num_units(self) -> int:
@@ -339,10 +336,7 @@ class CassandraOperatorCharm(CharmBase):
         return len(relation.units) + 1 if relation is not None else 1
 
     def _goal_units(self) -> int:
-        # We need to shell out here as goal state is not yet implemented in operator
-        # See https://github.com/canonical/operator/pull/453
-        goal_state = json.loads(subprocess.check_output(["goal-state", "--format", "json"]))
-        return len(goal_state["units"])
+        return self.app.planned_units()
 
     def _hostname(self) -> str:
         """Return the hostname of the unit pod.
@@ -352,7 +346,7 @@ class CassandraOperatorCharm(CharmBase):
         """
         return f"{self.unit.name.replace('/','-')}.{self.app.name}-endpoints.{self.model.name}.svc.cluster.local"
 
-    def _bind_address(self, timeout=60) -> Optional[str]:
+    def _bind_address(self) -> Optional[str]:
         try:
             return str(self.model.get_binding("cassandra-peers").network.bind_address)
         except TypeError as e:
