@@ -79,6 +79,7 @@ class CassandraOperatorCharm(CharmBase):
             self.on_dashboard_status_changed,
         )
         self.cassandra = Cassandra(charm=self)
+        logging.getLogger("cassandra").setLevel(logging.CRITICAL)
 
     def on_pebble_ready(self, event: EventBase) -> None:
         """Run the pebble ready hook.
