@@ -14,7 +14,7 @@ from typing import Optional
 import yaml
 from charms.cassandra_k8s.v0.cassandra import CassandraProvider
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardConsumer
-from charms.prometheus_k8s.v0.prometheus import MetricsEndpointProvider
+from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
 from ops.charm import CharmBase
 from ops.framework import EventBase
 from ops.main import main
@@ -51,17 +51,16 @@ class CassandraOperatorCharm(CharmBase):
         self.provider = CassandraProvider(charm=self, name="database")
         self.framework.observe(self.provider.on.data_changed, self.on_provider_data_changed)
 
-        self.prometheus_consumer = MetricsEndpointProvider(
+        self.prometheus_provider = MetricsEndpointProvider(
             charm=self,
-            name="monitoring",
-            service_event=self.on.cassandra_pebble_ready,
+            relation_name="monitoring",
             jobs=[
                 {
                     "static_configs": [{"targets": [f"*:{PROMETHEUS_EXPORTER_PORT}"]}],
                 }
             ],
         )
-        self.framework.observe(self.on["monitoring"].relation_joined, self.on_monitoring_joined)
+        self.framework.observe(self.on["monitoring"].relation_created, self.on_monitoring_created)
         self.framework.observe(self.on["monitoring"].relation_broken, self.on_monitoring_broken)
 
         self.dashboard_consumer = GrafanaDashboardConsumer(
@@ -168,7 +167,7 @@ class CassandraOperatorCharm(CharmBase):
             self._dashboard_valid = False
             self.unit.status = BlockedStatus(event.error_message)
 
-    def on_monitoring_joined(self, _) -> None:
+    def on_monitoring_created(self, _) -> None:
         """Run the joined hook for the monitoring relation."""
         self._setup_monitoring()
 

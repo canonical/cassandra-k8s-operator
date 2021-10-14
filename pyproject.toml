@@ -63,5 +63,5 @@ module = ["ops.*", "kubernetes.*", "cassandra.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = ["charms.prometheus_k8s.v0.prometheus.*"]
+module = ["charms.prometheus_k8s.v0.prometheus_scrape.*"]
 follow_imports = "silent"
