@@ -12,9 +12,10 @@ async def test_build_and_deploy(ops_test):
     await ops_test.model.set_config({"update-status-hook-interval": "15s"})
     await ops_test.model.deploy(
         f"{my_charm.parents[0]}/cassandra-k8s_ubuntu-20.04-amd64.charm",
+        config={"heap_size": "1G"},
         resources={
             "cassandra-image": "cassandra:3.11",
             "cassandra-prometheus-exporter": "cassandra-exporter-agent.jar",
         },
     )
-    await ops_test.model.wait_for_idle(wait_for_active=True)
+    await ops_test.model.wait_for_idle(status="active")
