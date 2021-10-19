@@ -6,14 +6,12 @@
 """Cassandra Operator Charm."""
 
 import logging
-import sys
-from pathlib import Path
 from re import IGNORECASE, match
 from typing import Optional
 
 import yaml
 from charms.cassandra_k8s.v0.cassandra import CassandraProvider
-from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardConsumer
+from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
 from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
 from ops.charm import CharmBase
 from ops.framework import EventBase
@@ -34,6 +32,15 @@ PROMETHEUS_EXPORTER_PORT = 9500
 PROMETHEUS_EXPORTER_DIR = "/opt/cassandra/lib"
 PROMETHEUS_EXPORTER_FILE = "prometheus_exporter_javaagent.jar"
 PROMETHEUS_EXPORTER_PATH = f"{PROMETHEUS_EXPORTER_DIR}/{PROMETHEUS_EXPORTER_FILE}"
+
+
+# This is needed due to a bug where pebble does not support restart.
+# We should remove it when the bug is fixed.
+def restart(container):
+    """Restart the cassandra service in container."""
+    if container.get_service("cassandra").is_running():
+        container.stop("cassandra")
+    container.start("cassandra")
 
 
 class CassandraOperatorCharm(CharmBase):
@@ -63,20 +70,7 @@ class CassandraOperatorCharm(CharmBase):
         self.framework.observe(self.on["monitoring"].relation_created, self.on_monitoring_created)
         self.framework.observe(self.on["monitoring"].relation_broken, self.on_monitoring_broken)
 
-        self.dashboard_consumer = GrafanaDashboardConsumer(
-            charm=self,
-            name="grafana-dashboard",
-        )
-        self.framework.observe(
-            self.on["grafana-dashboard"].relation_joined, self.on_dashboard_joined
-        )
-        self.framework.observe(
-            self.on["grafana-dashboard"].relation_broken, self.on_dashboard_broken
-        )
-        self.framework.observe(
-            self.dashboard_consumer.on.dashboard_status_changed,
-            self.on_dashboard_status_changed,
-        )
+        self.dashboard_provider = GrafanaDashboardProvider(self)
         self.cassandra = Cassandra(charm=self)
         logging.getLogger("cassandra").setLevel(logging.CRITICAL)
 
@@ -86,9 +80,6 @@ class CassandraOperatorCharm(CharmBase):
         Args:
             event: the event object
         """
-        if not self._container.can_connect():
-            return
-
         if self._num_units() != self._goal_units():
             self.unit.status = MaintenanceStatus("Waiting for units")
             event.defer()
@@ -98,7 +89,8 @@ class CassandraOperatorCharm(CharmBase):
             return
 
         if self._set_layer():
-            self._container.restart("cassandra")
+            # self._container.restart("cassandra")
+            restart(self._container)
 
         if self.unit.is_leader():
             if not self.cassandra.root_password(event):
@@ -125,7 +117,8 @@ class CassandraOperatorCharm(CharmBase):
             self._container.get_plan().to_dict().get("services", {}).get("cassandra")
             and self._set_layer()
         ):
-            self._container.restart("cassandra")
+            restart(self._container)
+            # self._container.restart("cassandra")
 
     def on_leader_elected(self, _):
         """Run the leader elected hook."""
@@ -135,37 +128,6 @@ class CassandraOperatorCharm(CharmBase):
         """Run the joined hook for the database relation."""
         self.provider.update_port("database", CQL_PORT)
         self.provider.update_address("database", self._hostname())
-
-    def on_dashboard_joined(self, _) -> None:
-        """Run the joined hook for the dashboard relation."""
-        if not self.unit.is_leader():
-            return
-
-        dashboard_path = Path(sys.path[0]) / "dashboard.json.tmpl"
-        with dashboard_path.open() as f:
-            self.dashboard_consumer.add_dashboard(f.read())
-
-        if isinstance(self.unit.status, BlockedStatus) and "dashboard" in self.unit.status.message:
-            self.unit.status = ActiveStatus()
-
-    def on_dashboard_broken(self, _) -> None:
-        """Run the broken hook for the dashboard relation."""
-        self.dashboard_consumer.remove_dashboard()
-        if isinstance(self.unit.status, BlockedStatus) and "dashboard" in self.unit.status.message:
-            self.unit.status = ActiveStatus()
-
-    def on_dashboard_status_changed(self, event: EventBase) -> None:
-        """Run the dashboard status changed hook.
-
-        Args:
-            event: the event object
-        """
-        if event.valid:
-            self._dashboard_valid = True
-            self.unit.status = ActiveStatus()
-        elif event.error_message:
-            self._dashboard_valid = False
-            self.unit.status = BlockedStatus(event.error_message)
 
     def on_monitoring_created(self, _) -> None:
         """Run the joined hook for the monitoring relation."""
@@ -199,9 +161,10 @@ class CassandraOperatorCharm(CharmBase):
 
             if restart_required:
                 try:
-                    self._container.restart("cassandra")
-                except RuntimeError as e:
-                    if 'service "cassandra" does not exist' in str(e):
+                    restart(self._container)
+                    # self._container.restart("cassandra")
+                except ModelError as e:
+                    if "service 'cassandra' not found" in str(e):
                         # The service has not yet been created. This is okay.
                         pass
                     else:
@@ -221,7 +184,8 @@ class CassandraOperatorCharm(CharmBase):
                     if PROMETHEUS_EXPORTER_PATH in line:
                         cassandra_env.remove(line)
                         self._container.push(ENV_PATH, "\n".join(cassandra_env))
-                        self._container.restart("cassandra")
+                        restart(self._container)
+                        # self._container.restart("cassandra")
                         break
                 self._container.remove_path(PROMETHEUS_EXPORTER_PATH)
 
@@ -349,7 +313,8 @@ class CassandraOperatorCharm(CharmBase):
             self._container.push(CONFIG_PATH, yaml.dump(conf))
             try:
                 if not self._container.get_service("cassandra").is_running():
-                    self._container.restart("cassandra")
+                    restart(self._container)
+                    # self._container.restart("cassandra")
             except ModelError as e:
                 if str(e) != "service 'cassandra' not found":
                     raise
