@@ -59,8 +59,12 @@ allow_redefinition = true
 
 # Ignore libraries that do not have type hint nor stubs
 [[tool.mypy.overrides]]
-module = ["ops.*", "kubernetes.*", "cassandra.*"]
+module = ["kubernetes.*", "cassandra.*"]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["ops.*"]
+follow_imports = "skip"
 
 [[tool.mypy.overrides]]
 module = ["charms.prometheus_k8s.v0.prometheus_scrape.*"]
