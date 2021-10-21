@@ -176,15 +176,15 @@ class CassandraOperatorCharm(CharmBase):
         """
         # If there are no monitoring relations, disable metrics
         if not self.model.relations["monitoring"] and self._container.can_connect():
-                cassandra_env = self._container.pull(ENV_PATH).readlines()
-                for line in cassandra_env:
-                    if PROMETHEUS_EXPORTER_PATH in line:
-                        cassandra_env.remove(line)
-                        self._container.push(ENV_PATH, "\n".join(cassandra_env))
-                        restart(self._container)
-                        # self._container.restart("cassandra")
-                        break
-                self._container.remove_path(PROMETHEUS_EXPORTER_PATH)
+            cassandra_env = self._container.pull(ENV_PATH).readlines()
+            for line in cassandra_env:
+                if PROMETHEUS_EXPORTER_PATH in line:
+                    cassandra_env.remove(line)
+                    self._container.push(ENV_PATH, "\n".join(cassandra_env))
+                    restart(self._container)
+                    # self._container.restart("cassandra")
+                    break
+            self._container.remove_path(PROMETHEUS_EXPORTER_PATH)
 
     def on_provider_data_changed(self, event: EventBase) -> None:
         """Run the provider data changed hook.
