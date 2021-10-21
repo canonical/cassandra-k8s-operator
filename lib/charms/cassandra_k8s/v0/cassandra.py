@@ -121,19 +121,13 @@ logger = logging.getLogger(__name__)
 class CassandraConsumerError(Exception):
     """Error base class."""
 
-    pass
-
 
 class NameDuplicateError(CassandraConsumerError):
     """Duplicate db names."""
 
-    pass
-
 
 class NameLengthError(CassandraConsumerError):
     """Name is too long."""
-
-    pass
 
 
 class DatabasesChangedEvent(EventBase):
