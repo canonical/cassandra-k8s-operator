@@ -113,10 +113,7 @@ class CassandraOperatorCharm(CharmBase):
         if match(r"^\d+[KMG]$", heap_size, IGNORECASE) is None:
             self.unit.status = BlockedStatus(f"Invalid Cassandra heap size setting: '{heap_size}'")
             return
-        if (
-            self._container.get_plan().to_dict().get("services", {}).get("cassandra")
-            and self._set_layer()
-        ):
+        if "cassandra" in self._container.get_plan().services:
             restart(self._container)
             # self._container.restart("cassandra")
 
