@@ -198,7 +198,7 @@ class CassandraOperatorCharm(CharmBase):
         if not creds:
             # Create a user for the related charm to use.
             username = f"juju-user-{event.app_name}"
-            if not (creds := self.cassandra.create_user(event, username)):  # type: ignore
+            if not (creds := self.cassandra.create_user(event, username)):
                 # Event was deffered.
                 return
             self.provider.set_credentials(event.rel_id, creds)
