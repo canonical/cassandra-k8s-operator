@@ -39,7 +39,7 @@ Cassandra integrates with the following
    likely this will be the Prometheus charm. This allows monitoring of the
    Cassandra cluster. More information about the `prometheus_scrape` interface can
    be found in the library docs
-   [here](https://charmhub.io/prometheus-k8s/libraries/prometheus).
+   [here](https://charmhub.io/prometheus-k8s/libraries/prometheus_scrape).
 
 For more information on using charm libraries, see the docs
 [here](https://charmhub.io/cassandra-k8s/libraries).
