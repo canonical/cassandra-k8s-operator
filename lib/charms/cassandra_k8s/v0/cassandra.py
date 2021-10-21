@@ -178,19 +178,20 @@ class CassandraConsumer(Object):
         """
         self.on.databases_changed.emit(rel_id=event.relation.id)
 
-    def credentials(self, rel_id: Optional[int] = None) -> tuple:
-        """Returns a dict of credentials.
-
-        {"username": <username>, "password": <password>}
+    def credentials(self, rel_id: Optional[int] = None) -> list:
+        """Returns the credentials.
 
         Args:
             rel_id: Relation id. Required for multi mode.
+
+        Returns:
+            The credentials in the form of [<username>, <password>]
         """
         rel = self.framework.model.get_relation(self.relation_name, rel_id)
 
         relation_data = rel.data[rel.app]
         creds_json = relation_data.get("credentials")
-        return json.loads(creds_json) if creds_json is not None else ()
+        return json.loads(creds_json) if creds_json is not None else []
 
     def databases(self, rel_id: Optional[int] = None) -> list:
         """List of currently available databases.
@@ -339,7 +340,7 @@ class CassandraProvider(Object):
                 if str(address) != relation.data[self.charm.app].get("address", None):
                     relation.data[self.charm.app]["address"] = str(address)
 
-    def credentials(self, rel_id: int) -> tuple:
+    def credentials(self, rel_id: int) -> list:
         """Return the set credentials.
 
         Args:
@@ -355,7 +356,7 @@ class CassandraProvider(Object):
 
         Args:
             rel_id: Relation id to set credentials for.
-            creds: A tuple or list of the form (username, password).
+            creds: A tuple or list of the form [username, password].
         """
         rel = self.framework.model.get_relation(self.name, rel_id)
         rel.data[self.charm.app]["credentials"] = json.dumps(creds)
