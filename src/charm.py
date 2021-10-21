@@ -177,8 +177,7 @@ class CassandraOperatorCharm(CharmBase):
             event: the event object
         """
         # If there are no monitoring relations, disable metrics
-        if not self.model.relations["monitoring"]:
-            if self._container.can_connect():
+        if not self.model.relations["monitoring"] and self._container.can_connect():
                 cassandra_env = self._container.pull(ENV_PATH).readlines()
                 for line in cassandra_env:
                     if PROMETHEUS_EXPORTER_PATH in line:
