@@ -96,7 +96,7 @@ class CassandraOperatorCharm(CharmBase):
             if not self.cassandra.root_password(event):
                 return
 
-        if len(self.model.relations["monitoring"]) > 0:
+        if self.model.relations["monitoring"]:
             self._setup_monitoring()
 
         self.provider.update_address("database", self._hostname())
