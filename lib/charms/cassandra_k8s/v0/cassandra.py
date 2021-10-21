@@ -1,7 +1,7 @@
 # Copyright 2020 Canonical Ltd.
 # See LICENSE file for licensing details.
 
-"""# cassandra charm library.
+"""# Cassandra charm library.
 
 ## Overview
 
