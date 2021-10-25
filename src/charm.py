@@ -13,8 +13,7 @@ import yaml
 from charms.cassandra_k8s.v0.cassandra import CassandraProvider
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
 from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
-from ops.charm import CharmBase
-from ops.framework import EventBase
+from ops.charm import CharmBase, ConfigChangedEvent, RelationChangedEvent, WorkloadEvent
 from ops.main import main
 from ops.model import ActiveStatus, BlockedStatus, MaintenanceStatus, ModelError
 from ops.pebble import APIError
@@ -74,7 +73,7 @@ class CassandraOperatorCharm(CharmBase):
         self.cassandra = Cassandra(charm=self)
         logging.getLogger("cassandra").setLevel(logging.CRITICAL)
 
-    def on_pebble_ready(self, event: EventBase) -> None:
+    def on_pebble_ready(self, event: WorkloadEvent) -> None:
         """Run the pebble ready hook.
 
         Args:
@@ -107,7 +106,7 @@ class CassandraOperatorCharm(CharmBase):
 
         self.unit.status = ActiveStatus()
 
-    def on_config_changed(self, event: EventBase) -> None:
+    def on_config_changed(self, event: ConfigChangedEvent) -> None:
         """Run the config changed hook.
 
         Args:
@@ -189,7 +188,7 @@ class CassandraOperatorCharm(CharmBase):
                     break
             self._container.remove_path(PROMETHEUS_EXPORTER_PATH)
 
-    def on_provider_data_changed(self, event: EventBase) -> None:
+    def on_provider_data_changed(self, event: RelationChangedEvent) -> None:
         """Run the provider data changed hook.
 
         Args:
