@@ -22,7 +22,6 @@ from cassandra.policies import RoundRobinPolicy
 from cassandra.query import SimpleStatement
 from ops.charm import CharmBase
 from ops.framework import EventBase
-from ops.model import MaintenanceStatus
 
 CQL_PORT = 9042
 CQL_PROTOCOL_VERSION = 4
@@ -98,8 +97,6 @@ class Cassandra:
                 )
         except NoHostAvailable as e:
             logger.info("Caught exception %s:%s: deferring", type(e), e)
-            self.charm.unit.status = MaintenanceStatus("Waiting for Database")
-            event.defer()
             return []
         return [username, password]
 
@@ -121,8 +118,6 @@ class Cassandra:
                 conn.execute(f"GRANT ALL PERMISSIONS ON KEYSPACE {db_name} to '{user}'")
         except NoHostAvailable as e:
             logger.info("Caught exception %s:%s: deferring", type(e), e)
-            self.charm.unit.status = MaintenanceStatus("Waiting for Database")
-            event.defer()
             return False
         return True
 
@@ -141,8 +136,6 @@ class Cassandra:
 
         # Without this the query to create a user for some reason does nothing
         if self.charm._num_units() != self.charm._goal_units():
-            self.charm.unit.status = MaintenanceStatus("Waiting for units")
-            event.defer()
             return ""
 
         # Use the default creds to create a new superuser
@@ -165,8 +158,6 @@ class Cassandra:
                 session.execute(query)
         except NoHostAvailable as e:
             logger.info("Caught exception %s:%s: deferring", type(e), e)
-            self.charm.unit.status = MaintenanceStatus("Waiting for Database")
-            event.defer()
             return ""
         except InvalidRequest as e:
             if (
@@ -185,8 +176,6 @@ class Cassandra:
                 )
         except NoHostAvailable as e:
             logger.info("Caught exception %s:%s: deferring", type(e), e)
-            self.charm.unit.status = MaintenanceStatus("Waiting for Database")
-            event.defer()
             return ""
         peer_relation.data[self.charm.app]["root_password"] = root_pass_secondary
         return root_pass_secondary

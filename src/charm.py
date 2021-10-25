@@ -86,6 +86,8 @@ class CassandraOperatorCharm(CharmBase):
             return
 
         if self._set_config_file(event) is False:
+            self.unit.status = MaintenanceStatus("Waiting for IP address")
+            event.defer()
             return
 
         if self._set_layer():
@@ -94,7 +96,8 @@ class CassandraOperatorCharm(CharmBase):
 
         if self.unit.is_leader():
             if not self.cassandra.root_password(event):
-                # Event was deffered.
+                self.charm.unit.status = MaintenanceStatus("Waiting for Database")
+                event.defer()
                 return
 
         if self.model.relations["monitoring"]:
@@ -199,7 +202,8 @@ class CassandraOperatorCharm(CharmBase):
             # Create a user for the related charm to use.
             username = f"juju-user-{event.app_name}"
             if not (creds := self.cassandra.create_user(event, username)):
-                # Event was deffered.
+                self.charm.unit.status = MaintenanceStatus("Waiting for Database")
+                event.defer()
                 return
             self.provider.set_credentials(event.rel_id, creds)
 
@@ -208,7 +212,8 @@ class CassandraOperatorCharm(CharmBase):
         for db in requested_dbs:
             if db not in dbs:
                 if not self.cassandra.create_db(event, db, creds[0], self._goal_units()):
-                    # Event was deffered.
+                    self.charm.unit.status = MaintenanceStatus("Waiting for Database")
+                    event.defer()
                     return
                 dbs.append(db)
         self.provider.set_databases(event.rel_id, dbs)
@@ -283,10 +288,8 @@ class CassandraOperatorCharm(CharmBase):
 
     def _set_config_file(self, event) -> bool:
         if (bind_address := self._bind_address()) is None:
-            self.unit.status = MaintenanceStatus("Waiting for IP address")
-            event.defer()
             return False
-        seeds = self._seeds())
+        seeds = self._seeds()
         conf = {
             "cluster_name": f"juju-cluster-{self.app.name}",
             "num_tokens": 256,
