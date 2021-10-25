@@ -10,7 +10,7 @@ from re import IGNORECASE, match
 from typing import Optional
 
 import yaml
-from charms.cassandra_k8s.v0.cassandra import CassandraProvider
+from charms.cassandra_k8s.v0.cql import CassandraProvider
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
 from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
 from ops.charm import CharmBase, ConfigChangedEvent, RelationChangedEvent, WorkloadEvent
