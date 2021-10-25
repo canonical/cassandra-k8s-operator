@@ -151,8 +151,8 @@ class CassandraOperatorCharm(CharmBase):
             if restart_required:
                 try:
                     self._container.restart("cassandra")
-                except ModelError as e:
-                    if "service 'cassandra' not found" in str(e):
+                except RuntimeError as e:
+                    if 'service "cassandra" does not exist' in str(e):
                         # The service has not yet been created. This is okay.
                         pass
                     else:
