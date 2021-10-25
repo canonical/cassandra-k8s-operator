@@ -242,7 +242,7 @@ class CassandraOperatorCharm(CharmBase):
                 }
             },
         }
-        services = self._container.get_plan().to_dict().get("services", {})
+        services = self._container.get_plan().services
         if services != layer["services"]:
             self._container.add_layer("cassandra", layer, combine=True)
             return True
