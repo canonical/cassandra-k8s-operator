@@ -286,8 +286,7 @@ class CassandraOperatorCharm(CharmBase):
             self.unit.status = MaintenanceStatus("Waiting for IP address")
             event.defer()
             return False
-        if not (seeds := self._seeds()):
-            return False
+        seeds = self._seeds())
         conf = {
             "cluster_name": f"juju-cluster-{self.app.name}",
             "num_tokens": 256,
