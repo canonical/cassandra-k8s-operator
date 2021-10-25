@@ -106,7 +106,6 @@ list of database names can be provided to.
 
 import json
 import logging
-from typing import Optional
 
 from ops.charm import CharmBase
 from ops.framework import EventBase, EventSource, Object, ObjectEvents
@@ -178,7 +177,7 @@ class CassandraConsumer(Object):
         """
         self.on.databases_changed.emit(rel_id=event.relation.id)
 
-    def credentials(self, rel_id: Optional[int] = None) -> list:
+    def credentials(self, rel_id: int = None) -> list:
         """Returns the credentials.
 
         Args:
@@ -193,7 +192,7 @@ class CassandraConsumer(Object):
         creds_json = relation_data.get("credentials")
         return json.loads(creds_json) if creds_json is not None else []
 
-    def databases(self, rel_id: Optional[int] = None) -> list:
+    def databases(self, rel_id: int = None) -> list:
         """List of currently available databases.
 
         Args:
@@ -208,7 +207,7 @@ class CassandraConsumer(Object):
         dbs = relation_data.get("databases")
         return json.loads(dbs) if dbs else []
 
-    def new_database(self, rel_id: Optional[int] = None, name_suffix: str = "") -> None:
+    def new_database(self, rel_id: int = None, name_suffix: str = "") -> None:
         """Request creation of an additional database.
 
         Args:
@@ -230,7 +229,7 @@ class CassandraConsumer(Object):
             raise NameDuplicateError("Database names are not unique")
         self._set_requested_databases(rel, dbs)
 
-    def port(self, rel_id: Optional[int] = None) -> str:
+    def port(self, rel_id: int = None) -> str:
         """Return the port which the cassandra instance is listening on.
 
         Args:
@@ -240,7 +239,7 @@ class CassandraConsumer(Object):
 
         return rel.data[rel.app].get("port")
 
-    def address(self, rel_id: Optional[int] = None) -> str:
+    def address(self, rel_id: int = None) -> str:
         """Return the address which the cassandra instance is listening on.
 
         Args:
