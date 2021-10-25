@@ -95,7 +95,7 @@ class CassandraOperatorCharm(CharmBase):
 
         if self.unit.is_leader():
             if not self.cassandra.root_password(event):
-                self.charm.unit.status = MaintenanceStatus("Waiting for Database")
+                self.unit.status = MaintenanceStatus("Waiting for Database")
                 event.defer()
                 return
 
@@ -201,7 +201,7 @@ class CassandraOperatorCharm(CharmBase):
             # Create a user for the related charm to use.
             username = f"juju-user-{event.app_name}"
             if not (creds := self.cassandra.create_user(event, username)):
-                self.charm.unit.status = MaintenanceStatus("Waiting for Database")
+                self.unit.status = MaintenanceStatus("Waiting for Database")
                 event.defer()
                 return
             self.provider.set_credentials(event.rel_id, creds)
@@ -211,7 +211,7 @@ class CassandraOperatorCharm(CharmBase):
         for db in requested_dbs:
             if db not in dbs:
                 if not self.cassandra.create_db(event, db, creds[0], self._goal_units()):
-                    self.charm.unit.status = MaintenanceStatus("Waiting for Database")
+                    self.unit.status = MaintenanceStatus("Waiting for Database")
                     event.defer()
                     return
                 dbs.append(db)
