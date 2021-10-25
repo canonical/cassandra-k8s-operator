@@ -33,15 +33,6 @@ PROMETHEUS_EXPORTER_FILE = "prometheus_exporter_javaagent.jar"
 PROMETHEUS_EXPORTER_PATH = f"{PROMETHEUS_EXPORTER_DIR}/{PROMETHEUS_EXPORTER_FILE}"
 
 
-# This is needed due to a bug where pebble does not support restart.
-# We should remove it when the bug is fixed.
-def restart(container):
-    """Restart the cassandra service in container."""
-    if container.get_service("cassandra").is_running():
-        container.stop("cassandra")
-    container.start("cassandra")
-
-
 class CassandraOperatorCharm(CharmBase):
     """Charm object for the Cassandra charm."""
 
@@ -90,8 +81,7 @@ class CassandraOperatorCharm(CharmBase):
             return
 
         if self._set_layer():
-            # self._container.restart("cassandra")
-            restart(self._container)
+            self._container.restart("cassandra")
 
         if self.unit.is_leader():
             if not self.cassandra.root_password(event):
@@ -117,8 +107,7 @@ class CassandraOperatorCharm(CharmBase):
             self.unit.status = BlockedStatus(f"Invalid Cassandra heap size setting: '{heap_size}'")
             return
         if "cassandra" in self._container.get_plan().services:
-            restart(self._container)
-            # self._container.restart("cassandra")
+            self._container.restart("cassandra")
 
     def on_leader_elected(self, _):
         """Run the leader elected hook."""
@@ -161,8 +150,7 @@ class CassandraOperatorCharm(CharmBase):
 
             if restart_required:
                 try:
-                    restart(self._container)
-                    # self._container.restart("cassandra")
+                    self._container.restart("cassandra")
                 except ModelError as e:
                     if "service 'cassandra' not found" in str(e):
                         # The service has not yet been created. This is okay.
@@ -183,8 +171,7 @@ class CassandraOperatorCharm(CharmBase):
                 if PROMETHEUS_EXPORTER_PATH in line:
                     cassandra_env.remove(line)
                     self._container.push(ENV_PATH, "\n".join(cassandra_env))
-                    restart(self._container)
-                    # self._container.restart("cassandra")
+                    self._container.restart("cassandra")
                     break
             self._container.remove_path(PROMETHEUS_EXPORTER_PATH)
 
@@ -313,8 +300,7 @@ class CassandraOperatorCharm(CharmBase):
             self._container.push(CONFIG_PATH, yaml.dump(conf))
             try:
                 if not self._container.get_service("cassandra").is_running():
-                    restart(self._container)
-                    # self._container.restart("cassandra")
+                    self._container.restart("cassandra")
             except ModelError as e:
                 if str(e) != "service 'cassandra' not found":
                     raise
