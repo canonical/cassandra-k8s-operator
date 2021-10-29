@@ -248,7 +248,7 @@ class CassandraOperatorCharm(CharmBase):
     def _goal_units(self) -> int:
         return self.app.planned_units()
 
-    def _hostname(self, unit_number: Optional[int] = None) -> str:
+    def _hostname(self, unit_number: int = None) -> str:
         """Return the hostname of the unit pod.
 
         Args:
