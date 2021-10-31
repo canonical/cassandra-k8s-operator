@@ -6,7 +6,7 @@ All bugs and pull requests should be submitted to the [github repo](https://gith
   explaining your use case.
 - If you would like to chat with us about your use-cases or proposed
   implementation, you can reach us at
-  [Canonical Mattermost public channel](https://chat.charmhub.io/charmhub/channels/charm-dev)
+  [the CharmHub Mattermost server](https://chat.charmhub.io/charmhub/channels/charm-dev)
   or [Discourse](https://discourse.charmhub.io/).
 - All enhancements require review before being merged. Apart from
   code quality and test coverage, the review will also take into
