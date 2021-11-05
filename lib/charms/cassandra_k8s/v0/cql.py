@@ -1,4 +1,8 @@
-"""
+# Copyright 2020 Canonical Ltd.
+# See LICENSE file for licensing details.
+
+"""# Cassandra charm library.
+
 ## Overview
 
 This document explains how to integrate with the Cassandra charm for the
@@ -100,130 +104,95 @@ list of database names can be provided to.
         ...
 """
 
-#  Copyright 2021 Canonical Ltd.
-#
-#  Licensed under the Apache License, Version 2.0 (the "License");
-#  you may not use this file except in compliance with the License.
-#  You may obtain a copy of the License at
-#
-#      http://www.apache.org/licenses/LICENSE-2.0
-#
-#  Unless required by applicable law or agreed to in writing, software
-#  distributed under the License is distributed on an "AS IS" BASIS,
-#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-#  See the License for the specific language governing permissions and
-#  limitations under the License.
-
-import functools
 import json
 import logging
-import secrets
-import string
 
+from ops.charm import CharmBase
 from ops.framework import EventBase, EventSource, Object, ObjectEvents
-from ops.model import BlockedStatus, MaintenanceStatus, WaitingStatus
+from ops.model import Relation
 
 LIBID = "fab458c53af54b0fa7ff696d71e243c1"
 LIBAPI = 0
-LIBPATCH = 1
+LIBPATCH = 2
 logger = logging.getLogger(__name__)
 
 
-class DeferEventError(Exception):
-    def __init__(self, reason, status_message):
-        super().__init__()
-        self.reason = reason
-        self.status_message = status_message
-
-
-class BlockedStatusError(Exception):
-    pass
-
-
-class WaitingStatusError(Exception):
-    pass
-
-
-def status_catcher(func):
-    @functools.wraps(func)
-    def new_func(self, *args, **kwargs):
-        try:
-            func(self, *args, **kwargs)
-        except DeferEventError as e:
-            if len(args) >= 1 and isinstance(args[0], EventBase):
-                event = args[0]
-            else:
-                logger.error("Can not defer: No event")
-                raise
-            logger.info("Defering event: %s because: %s", event, e.reason)
-            self.unit.status = MaintenanceStatus(e.status_message)
-            event.defer()
-        except BlockedStatusError as e:
-            self.unit.status = BlockedStatus(str(e))
-        except WaitingStatusError as e:
-            self.unit.status = WaitingStatus(str(e))
-
-    return new_func
-
-
 class CassandraConsumerError(Exception):
-    pass
+    """Error base class."""
 
 
 class NameDuplicateError(CassandraConsumerError):
-    pass
+    """Duplicate db names."""
 
 
 class NameLengthError(CassandraConsumerError):
-    pass
+    """Name is too long."""
 
 
 class DatabasesChangedEvent(EventBase):
-    """Event emitted when the relation data has changed"""
+    """Event emitted when the relation data has changed."""
 
-    def __init__(self, handle, rel_id):
+    def __init__(self, handle, rel_id: int):
         super().__init__(handle)
         self.rel_id = rel_id
 
     def snapshot(self):
+        """Snapshot the event."""
         return {"rel_id": self.rel_id}
 
     def restore(self, snapshot):
+        """Restore the event."""
         self.rel_id = snapshot["rel_id"]
 
 
 class CassandraConsumerEvents(ObjectEvents):
+    """Consumer events object."""
+
     databases_changed = EventSource(DatabasesChangedEvent)
 
 
 class CassandraConsumer(Object):
+    """Cassandra consumer object."""
+
     on = CassandraConsumerEvents()
 
-    def __init__(self, charm, name):
+    def __init__(self, charm: CharmBase, name: str):
+        """Constructor fot the CassandraConsumer object.
+
+        Args:
+            charm: The charm object that instantiated this class.
+            name: The name of the cql relation.
+        """
         super().__init__(charm, name)
         self.charm = charm
         self.relation_name = name
         events = self.charm.on[name]
-        self.framework.observe(events.relation_changed, self.on_relation_changed)
+        self.framework.observe(events.relation_changed, self._on_relation_changed)
 
-    def on_relation_changed(self, event):
+    def _on_relation_changed(self, event: EventBase) -> None:
+        """Handle a relation changed event.
+
+        Args:
+            event: The event object.
+        """
         self.on.databases_changed.emit(rel_id=event.relation.id)
 
-    def credentials(self, rel_id=None):
-        """
-        Returns a dict of credentials
-        {"username": <username>, "password": <password>}
+    def credentials(self, rel_id: int = None) -> list:
+        """Returns the credentials.
 
         Args:
             rel_id: Relation id. Required for multi mode.
+
+        Returns:
+            The credentials in the form of [<username>, <password>]
         """
         rel = self.framework.model.get_relation(self.relation_name, rel_id)
 
         relation_data = rel.data[rel.app]
         creds_json = relation_data.get("credentials")
-        return json.loads(creds_json) if creds_json is not None else ()
+        return json.loads(creds_json) if creds_json is not None else []
 
-    def databases(self, rel_id=None):
+    def databases(self, rel_id: int = None) -> list:
         """List of currently available databases.
 
         Args:
@@ -238,7 +207,7 @@ class CassandraConsumer(Object):
         dbs = relation_data.get("databases")
         return json.loads(dbs) if dbs else []
 
-    def new_database(self, rel_id=None, name_suffix=""):
+    def new_database(self, rel_id: int = None, name_suffix: str = "") -> None:
         """Request creation of an additional database.
 
         Args:
@@ -249,12 +218,8 @@ class CassandraConsumer(Object):
         rel = self.framework.model.get_relation(self.relation_name, rel_id)
 
         if name_suffix:
-            name_suffix = "_{}".format(name_suffix)
-        db_name = "juju_db_{}_{}{}".format(
-            sanitize_name(self.charm.model.name),
-            sanitize_name(self.charm.app.name),
-            sanitize_name(name_suffix),
-        )
+            name_suffix = f"_{name_suffix}"
+        db_name = f"juju_db_{sanitize_name(self.charm.model.name)}_{sanitize_name(self.charm.app.name)}{sanitize_name(name_suffix)}"
         # Cassandra does not allow keyspace names longer than 48 characters
         if len(db_name) > 48:
             raise NameLengthError("Database name can not be more than 48 characters")
@@ -264,7 +229,7 @@ class CassandraConsumer(Object):
             raise NameDuplicateError("Database names are not unique")
         self._set_requested_databases(rel, dbs)
 
-    def port(self, rel_id=None):
+    def port(self, rel_id: int = None) -> str:
         """Return the port which the cassandra instance is listening on.
 
         Args:
@@ -274,7 +239,7 @@ class CassandraConsumer(Object):
 
         return rel.data[rel.app].get("port")
 
-    def address(self, rel_id=None):
+    def address(self, rel_id: int = None) -> str:
         """Return the address which the cassandra instance is listening on.
 
         Args:
@@ -284,91 +249,161 @@ class CassandraConsumer(Object):
 
         return rel.data[rel.app].get("address")
 
-    def _requested_databases(self, relation):
-        """Return the list of requested databases."""
+    def _requested_databases(self, relation: Relation) -> list:
+        """Return the list of requested databases.
+
+        Args:
+            relation: The relevant relation object.
+
+        Returns:
+            A list of database names
+        """
         dbs_json = relation.data[self.charm.app].get("requested_databases", "[]")
         return json.loads(dbs_json)
 
-    def _set_requested_databases(self, relation, requested_databases):
-        """Set the list of requested databases."""
+    def _set_requested_databases(self, relation: Relation, requested_databases: list) -> None:
+        """Set the list of requested databases.
+
+        Args:
+            relation: The relevant relation object.
+            requested_databases: A list of database names
+        """
         relation.data[self.charm.app]["requested_databases"] = json.dumps(requested_databases)
 
 
 class DataChangedEvent(EventBase):
-    """Event emitted when the relation data has changed"""
+    """Event emitted when the relation data has changed."""
 
-    def __init__(self, handle, rel_id, app_name):
+    def __init__(self, handle, rel_id: int, app_name: str):
         super().__init__(handle)
         self.rel_id = rel_id
         self.app_name = app_name
 
     def snapshot(self):
+        """Snapshot the event."""
         return {"rel_id": self.rel_id, "app_name": self.app_name}
 
     def restore(self, snapshot):
+        """Restore the event."""
         self.rel_id = snapshot["rel_id"]
         self.app_name = snapshot["app_name"]
 
 
 class CassandraProviderEvents(ObjectEvents):
+    """Provider events object."""
+
     data_changed = EventSource(DataChangedEvent)
 
 
 class CassandraProvider(Object):
+    """Cassandra provider object."""
+
     on = CassandraProviderEvents()
 
-    def __init__(self, charm, name):
+    def __init__(self, charm: CharmBase, name: str):
+        """Constructor for CassandraProvider.
+
+        Args:
+            charm: The charm object that instantiated this class.
+            name: The name of the cql relation.
+        """
         super().__init__(charm, name)
         self.charm = charm
         self.name = name
         events = self.charm.on[name]
-        self.framework.observe(events.relation_changed, self.on_relation_changed)
+        self.framework.observe(events.relation_changed, self._on_relation_changed)
 
-    def update_port(self, relation_name, port):
+    def update_port(self, relation_name: str, port: int) -> None:
+        """Update the port which Cassandra is listening on.
+
+        Args:
+            relation_name: The name of the cql relation.
+            port: The port number.
+        """
         if self.charm.unit.is_leader():
             for relation in self.charm.model.relations[relation_name]:
                 logger.info("Setting port data for relation %s", relation)
                 if str(port) != relation.data[self.charm.app].get("port", None):
                     relation.data[self.charm.app]["port"] = str(port)
 
-    def update_address(self, relation_name, address):
+    def update_address(self, relation_name: str, address: str) -> None:
+        """Update the address which Cassandra is listening on.
+
+        Args:
+            relation_name: The name of the cql relation.
+            address: The address which Cassandra is listening on.
+        """
         if self.charm.unit.is_leader():
             for relation in self.charm.model.relations[relation_name]:
                 logger.info("Setting address data for relation %s", relation)
                 if str(address) != relation.data[self.charm.app].get("address", None):
                     relation.data[self.charm.app]["address"] = str(address)
 
-    def credentials(self, rel_id):
+    def credentials(self, rel_id: int) -> list:
+        """Return the set credentials.
+
+        Args:
+            rel_id: Relation id to look up credentials for.
+        Returns: A (username, password) tuple.
+        """
         rel = self.framework.model.get_relation(self.name, rel_id)
         creds_json = rel.data[self.charm.app].get("credentials", "[]")
         return json.loads(creds_json)
 
-    def set_credentials(self, rel_id, creds):
+    def set_credentials(self, rel_id: int, creds) -> None:
+        """Set the credentials for a related charm.
+
+        Args:
+            rel_id: Relation id to set credentials for.
+            creds: A tuple or list of the form [username, password].
+        """
         rel = self.framework.model.get_relation(self.name, rel_id)
         rel.data[self.charm.app]["credentials"] = json.dumps(creds)
 
-    def requested_databases(self, rel_id):
+    def requested_databases(self, rel_id: int) -> list:
+        """Return a list of the requested databases.
+
+        Args:
+            rel_id: The relation to return data from.
+
+        Returns:
+            A list of database names.
+        """
         rel = self.framework.model.get_relation(self.name, rel_id)
         return json.loads(rel.data[rel.app].get("requested_databases", "[]"))
 
-    def databases(self, rel_id):
+    def databases(self, rel_id: int) -> list:
+        """Return a list of the existing databases.
+
+        Args:
+            rel_id: The relation to return data from.
+
+        Returns:
+            A list of database names.
+        """
         rel = self.framework.model.get_relation(self.name, rel_id)
         return json.loads(rel.data[self.charm.app].get("databases") or "[]")
 
-    def set_databases(self, rel_id, dbs):
+    def set_databases(self, rel_id: int, dbs: list) -> None:
+        """Set the list of the requested databases.
+
+        Args:
+            rel_id: The relation to return data from.
+            dbs: A list of database names to request.
+        """
         rel = self.framework.model.get_relation(self.name, rel_id)
         rel.data[self.charm.app]["databases"] = json.dumps(dbs)
 
-    def on_relation_changed(self, event):
+    def _on_relation_changed(self, event: EventBase) -> None:
+        """Handle the relation changed event.
+
+        Args:
+            event: The event object.
+        """
         self.on.data_changed.emit(event.relation.id, event.app.name)
 
 
-def sanitize_name(name):
-    """Make a name safe for use as a keyspace name"""
+def sanitize_name(name: str) -> str:
+    """Make a name safe for use as a keyspace name."""
     # For now just change dashes to underscores. Fix this more in the future
     return name.replace("-", "_")
-
-
-def generate_password():
-    alphabet = string.ascii_letters + string.digits
-    return "".join(secrets.choice(alphabet) for i in range(20))

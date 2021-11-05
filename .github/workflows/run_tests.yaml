@@ -1,14 +1,27 @@
+# Copyright 2021 Canonical Ltd.
+# See LICENSE file for licensing details.
+
 name: Run-Tests
 
 on: [pull_request]
 
 jobs:
+  static-analysis:
+    name: Static analysis
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Install dependencies
+        run: pip install tox
+      - name: Run static analysis
+        run: tox -vve static
 
   lint:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - name: Chekout
+      - name: Checkout
         uses: actions/checkout@v2
       - name: Install dependencies
         run: pip install tox
@@ -19,7 +32,7 @@ jobs:
     name: Unit Tests
     runs-on: ubuntu-latest
     steps:
-      - name: Chekout
+      - name: Checkout
         uses: actions/checkout@v2
       - name: Install dependencies
         run: pip install tox
@@ -30,11 +43,11 @@ jobs:
     name: Integration Tests
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout
-      uses: actions/checkout@v2
-    - name: Setup Operator Environment
-      uses: charmed-kubernetes/actions-operator@main
-      with:
-        provider: microk8s
-    - name: Run Integration Tests
-      run: tox -e integration
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Setup Operator Environment
+        uses: charmed-kubernetes/actions-operator@main
+        with:
+          provider: microk8s
+      - name: Run Integration Tests
+        run: tox -e integration
