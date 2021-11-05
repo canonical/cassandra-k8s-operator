@@ -93,7 +93,7 @@ class Cassandra:
         try:
             with self.connect(event) as conn:
                 conn.execute(
-                    "CREATE ROLE IF NOT EXISTS '%s' WITH PASSWORD = '%s' AND LOGIN = true",
+                    "CREATE ROLE IF NOT EXISTS %s WITH PASSWORD = %s AND LOGIN = true",
                     (username, password),
                 )
         except NoHostAvailable as e:
@@ -117,7 +117,7 @@ class Cassandra:
                     "CREATE KEYSPACE IF NOT EXISTS %s WITH REPLICATION = {{ 'class' : 'SimpleStrategy', 'replication_factor' : %s }}",
                     (db_name, replication),
                 )
-                conn.execute("GRANT ALL PERMISSIONS ON KEYSPACE %s to '%s'", (db_name, user))
+                conn.execute("GRANT ALL PERMISSIONS ON KEYSPACE %s to %s", (db_name, user))
         except NoHostAvailable as e:
             logger.info("Caught exception %s:%s: deferring", type(e), e)
             return False
@@ -154,7 +154,7 @@ class Cassandra:
                         "root_password_secondary"
                     ] = root_pass_secondary
                 query = SimpleStatement(
-                    "CREATE ROLE %s WITH PASSWORD = '%s' AND SUPERUSER = true AND LOGIN = true",
+                    "CREATE ROLE %s WITH PASSWORD = %s AND SUPERUSER = true AND LOGIN = true",
                     consistency_level=ConsistencyLevel.QUORUM,
                 )
                 session.execute(query, (ROOT_USER, root_pass_secondary))
