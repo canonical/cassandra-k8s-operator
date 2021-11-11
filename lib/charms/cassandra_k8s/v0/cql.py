@@ -30,7 +30,7 @@ This relation must use the `cassandra` interface.
         )
         ...
 
-The `address`, `port`, `databases`, and `credentials` methods of the
+The `address`, `port`, and `credentials` methods of the
 `CassandraConsumer` object can all be called to get the relevant connection
 information from the relation data.
 
