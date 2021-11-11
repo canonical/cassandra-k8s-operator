@@ -108,8 +108,7 @@ import json
 import logging
 
 from ops.charm import CharmBase
-from ops.framework import EventBase, EventSource, Object, ObjectEvents
-from ops.model import Relation
+from ops.framework import EventBase, Object
 
 LIBID = "fab458c53af54b0fa7ff696d71e243c1"
 LIBAPI = 0
@@ -129,32 +128,8 @@ class NameLengthError(CassandraConsumerError):
     """Name is too long."""
 
 
-class DatabasesChangedEvent(EventBase):
-    """Event emitted when the relation data has changed."""
-
-    def __init__(self, handle, rel_id: int):
-        super().__init__(handle)
-        self.rel_id = rel_id
-
-    def snapshot(self):
-        """Snapshot the event."""
-        return {"rel_id": self.rel_id}
-
-    def restore(self, snapshot):
-        """Restore the event."""
-        self.rel_id = snapshot["rel_id"]
-
-
-class CassandraConsumerEvents(ObjectEvents):
-    """Consumer events object."""
-
-    databases_changed = EventSource(DatabasesChangedEvent)
-
-
 class CassandraConsumer(Object):
     """Cassandra consumer object."""
-
-    on = CassandraConsumerEvents()
 
     def __init__(self, charm: CharmBase, name: str):
         """Constructor fot the CassandraConsumer object.
@@ -166,16 +141,6 @@ class CassandraConsumer(Object):
         super().__init__(charm, name)
         self.charm = charm
         self.relation_name = name
-        events = self.charm.on[name]
-        self.framework.observe(events.relation_changed, self._on_relation_changed)
-
-    def _on_relation_changed(self, event: EventBase) -> None:
-        """Handle a relation changed event.
-
-        Args:
-            event: The event object.
-        """
-        self.on.databases_changed.emit(rel_id=event.relation.id)
 
     def credentials(self, rel_id: int = None) -> list:
         """Returns the credentials.
@@ -191,43 +156,6 @@ class CassandraConsumer(Object):
         relation_data = rel.data[rel.app]
         creds_json = relation_data.get("credentials")
         return json.loads(creds_json) if creds_json is not None else []
-
-    def databases(self, rel_id: int = None) -> list:
-        """List of currently available databases.
-
-        Args:
-            rel_id: Relation id. Required for multi mode.
-
-        Returns:
-            list: list of database names
-        """
-        rel = self.framework.model.get_relation(self.relation_name, rel_id)
-
-        relation_data = rel.data[rel.app]
-        dbs = relation_data.get("databases")
-        return json.loads(dbs) if dbs else []
-
-    def new_database(self, rel_id: int = None, name_suffix: str = "") -> None:
-        """Request creation of an additional database.
-
-        Args:
-            rel_id: Relation id. Required for multi mode.
-            name_suffix (str): Suffix to append to the datatbase name. This is
-                required if you request multiple databases.
-        """
-        rel = self.framework.model.get_relation(self.relation_name, rel_id)
-
-        if name_suffix:
-            name_suffix = f"_{name_suffix}"
-        db_name = f"juju_db_{sanitize_name(self.charm.model.name)}_{sanitize_name(self.charm.app.name)}{sanitize_name(name_suffix)}"
-        # Cassandra does not allow keyspace names longer than 48 characters
-        if len(db_name) > 48:
-            raise NameLengthError("Database name can not be more than 48 characters")
-        dbs = self._requested_databases(rel)
-        dbs.append(db_name)
-        if not len(dbs) == len(set(dbs)):
-            raise NameDuplicateError("Database names are not unique")
-        self._set_requested_databases(rel, dbs)
 
     def port(self, rel_id: int = None) -> str:
         """Return the port which the cassandra instance is listening on.
@@ -249,56 +177,9 @@ class CassandraConsumer(Object):
 
         return rel.data[rel.app].get("address")
 
-    def _requested_databases(self, relation: Relation) -> list:
-        """Return the list of requested databases.
-
-        Args:
-            relation: The relevant relation object.
-
-        Returns:
-            A list of database names
-        """
-        dbs_json = relation.data[self.charm.app].get("requested_databases", "[]")
-        return json.loads(dbs_json)
-
-    def _set_requested_databases(self, relation: Relation, requested_databases: list) -> None:
-        """Set the list of requested databases.
-
-        Args:
-            relation: The relevant relation object.
-            requested_databases: A list of database names
-        """
-        relation.data[self.charm.app]["requested_databases"] = json.dumps(requested_databases)
-
-
-class DataChangedEvent(EventBase):
-    """Event emitted when the relation data has changed."""
-
-    def __init__(self, handle, rel_id: int, app_name: str):
-        super().__init__(handle)
-        self.rel_id = rel_id
-        self.app_name = app_name
-
-    def snapshot(self):
-        """Snapshot the event."""
-        return {"rel_id": self.rel_id, "app_name": self.app_name}
-
-    def restore(self, snapshot):
-        """Restore the event."""
-        self.rel_id = snapshot["rel_id"]
-        self.app_name = snapshot["app_name"]
-
-
-class CassandraProviderEvents(ObjectEvents):
-    """Provider events object."""
-
-    data_changed = EventSource(DataChangedEvent)
-
 
 class CassandraProvider(Object):
     """Cassandra provider object."""
-
-    on = CassandraProviderEvents()
 
     def __init__(self, charm: CharmBase, name: str):
         """Constructor for CassandraProvider.
@@ -310,8 +191,6 @@ class CassandraProvider(Object):
         super().__init__(charm, name)
         self.charm = charm
         self.name = name
-        events = self.charm.on[name]
-        self.framework.observe(events.relation_changed, self._on_relation_changed)
 
     def update_port(self, relation_name: str, port: int) -> None:
         """Update the port which Cassandra is listening on.
@@ -359,40 +238,6 @@ class CassandraProvider(Object):
         """
         rel = self.framework.model.get_relation(self.name, rel_id)
         rel.data[self.charm.app]["credentials"] = json.dumps(creds)
-
-    def requested_databases(self, rel_id: int) -> list:
-        """Return a list of the requested databases.
-
-        Args:
-            rel_id: The relation to return data from.
-
-        Returns:
-            A list of database names.
-        """
-        rel = self.framework.model.get_relation(self.name, rel_id)
-        return json.loads(rel.data[rel.app].get("requested_databases", "[]"))
-
-    def databases(self, rel_id: int) -> list:
-        """Return a list of the existing databases.
-
-        Args:
-            rel_id: The relation to return data from.
-
-        Returns:
-            A list of database names.
-        """
-        rel = self.framework.model.get_relation(self.name, rel_id)
-        return json.loads(rel.data[self.charm.app].get("databases") or "[]")
-
-    def set_databases(self, rel_id: int, dbs: list) -> None:
-        """Set the list of the requested databases.
-
-        Args:
-            rel_id: The relation to return data from.
-            dbs: A list of database names to request.
-        """
-        rel = self.framework.model.get_relation(self.name, rel_id)
-        rel.data[self.charm.app]["databases"] = json.dumps(dbs)
 
     def _on_relation_changed(self, event: EventBase) -> None:
         """Handle the relation changed event.

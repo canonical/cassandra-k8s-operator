@@ -13,7 +13,7 @@ import yaml
 from charms.cassandra_k8s.v0.cql import CassandraProvider
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
 from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
-from ops.charm import CharmBase, ConfigChangedEvent, RelationChangedEvent, WorkloadEvent
+from ops.charm import CharmBase, ConfigChangedEvent, WorkloadEvent
 from ops.main import main
 from ops.model import ActiveStatus, BlockedStatus, MaintenanceStatus, ModelError
 from ops.pebble import APIError
@@ -46,7 +46,6 @@ class CassandraOperatorCharm(CharmBase):
         self.framework.observe(self.on["database"].relation_joined, self.on_database_joined)
         # TODO: We need to query the version from the database itself
         self.provider = CassandraProvider(charm=self, name="database")
-        self.framework.observe(self.provider.on.data_changed, self.on_provider_data_changed)
 
         self.prometheus_provider = MetricsEndpointProvider(
             charm=self,
@@ -115,8 +114,23 @@ class CassandraOperatorCharm(CharmBase):
 
     def on_database_joined(self, event):
         """Run the joined hook for the database relation."""
+        if not self.unit.is_leader():
+            return
+
+        # Set address and port
         self.provider.update_port("database", CQL_PORT)
         self.provider.update_address("database", self._hostname())
+
+        # Set credentials
+        creds = self.provider.credentials(event.relation.id)
+        if not creds:
+            # Create a user for the related charm to use.
+            username = f"juju-user-{event.app.name}"
+            if not (creds := self.cassandra.create_user(event, username)):
+                self.unit.status = MaintenanceStatus("Waiting for Database")
+                event.defer()
+                return
+            self.provider.set_credentials(event.relation.id, creds)
 
     def on_monitoring_created(self, _) -> None:
         """Run the joined hook for the monitoring relation."""
@@ -174,35 +188,6 @@ class CassandraOperatorCharm(CharmBase):
                     self._container.restart("cassandra")
                     break
             self._container.remove_path(PROMETHEUS_EXPORTER_PATH)
-
-    def on_provider_data_changed(self, event: RelationChangedEvent) -> None:
-        """Run the provider data changed hook.
-
-        Args:
-            event: the event object
-        """
-        if not self.unit.is_leader():
-            return
-        creds = self.provider.credentials(event.rel_id)
-        if not creds:
-            # Create a user for the related charm to use.
-            username = f"juju-user-{event.app_name}"
-            if not (creds := self.cassandra.create_user(event, username)):
-                self.unit.status = MaintenanceStatus("Waiting for Database")
-                event.defer()
-                return
-            self.provider.set_credentials(event.rel_id, creds)
-
-        requested_dbs = self.provider.requested_databases(event.rel_id)
-        dbs = self.provider.databases(event.rel_id)
-        for db in requested_dbs:
-            if db not in dbs:
-                if not self.cassandra.create_db(event, db, creds[0], self._goal_units()):
-                    self.unit.status = MaintenanceStatus("Waiting for Database")
-                    event.defer()
-                    return
-                dbs.append(db)
-        self.provider.set_databases(event.rel_id, dbs)
 
     def _set_layer(self) -> bool:
         """Set the layer for cassandra.

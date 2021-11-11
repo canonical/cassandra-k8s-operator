@@ -105,16 +105,6 @@ class TestCharm(unittest.TestCase):
             "cassandra-k8s-0.cassandra-k8s-endpoints.None.svc.cluster.local",
         )
 
-    def test_request_db(self):
-        rel_id = self.harness.add_relation("database", "otherapp")
-        self.assertIsInstance(rel_id, int)
-        self.harness.add_relation_unit(rel_id, "otherapp/0")
-        self.harness.update_relation_data(
-            rel_id, "otherapp", {"requested_databases": '["db_name"]'}
-        )
-        data = self.harness.get_relation_data(rel_id, "cassandra-k8s")
-        assert len(json.loads(data["databases"])) == 1
-
     def test_root_password_is_set(self):
         rel = self.harness.charm.model.get_relation("cassandra-peers")
         self.assertEqual(rel.data[self.harness.charm.app].get("root_password", None), None)
