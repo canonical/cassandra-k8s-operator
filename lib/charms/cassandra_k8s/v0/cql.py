@@ -78,7 +78,7 @@ from ops.framework import EventBase, Object
 
 LIBID = "fab458c53af54b0fa7ff696d71e243c1"
 LIBAPI = 0
-LIBPATCH = 2
+LIBPATCH = 3
 logger = logging.getLogger(__name__)
 
 
