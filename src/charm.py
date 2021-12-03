@@ -12,6 +12,7 @@ from typing import Optional
 import yaml
 from charms.cassandra_k8s.v0.cql import CassandraProvider
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
+from charms.loki_k8s.v0.log_proxy import LogProxyConsumer, PromtailDigestError
 from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
 from ops.charm import CharmBase, ConfigChangedEvent, WorkloadEvent
 from ops.main import main
@@ -31,6 +32,13 @@ PROMETHEUS_EXPORTER_PORT = 9500
 PROMETHEUS_EXPORTER_DIR = "/opt/cassandra/lib"
 PROMETHEUS_EXPORTER_FILE = "prometheus_exporter_javaagent.jar"
 PROMETHEUS_EXPORTER_PATH = f"{PROMETHEUS_EXPORTER_DIR}/{PROMETHEUS_EXPORTER_FILE}"
+
+RSYSLOG_CONFIG = """
+module(load="imfile")
+input(type="imfile" File="/var/log/cassandra/*.log" Tag="cass")
+
+{}
+"""
 
 
 class CassandraOperatorCharm(CharmBase):
@@ -56,10 +64,17 @@ class CassandraOperatorCharm(CharmBase):
                 }
             ],
         )
+        self.framework.observe(self.on["log_proxy"].relation_created, self.on_log_proxy_created)
         self.framework.observe(self.on["monitoring"].relation_created, self.on_monitoring_created)
         self.framework.observe(self.on["monitoring"].relation_broken, self.on_monitoring_broken)
 
         self.dashboard_provider = GrafanaDashboardProvider(self)
+
+        try:
+            self.log_proxy = LogProxyConsumer(charm=self, log_type="syslog", container_name="cassandra")
+        except PromtailDigestError as e:
+            logger.error(str(e))
+
         self.cassandra = Cassandra(charm=self)
         logging.getLogger("cassandra").setLevel(logging.CRITICAL)
 
@@ -135,6 +150,18 @@ class CassandraOperatorCharm(CharmBase):
     def on_monitoring_created(self, _) -> None:
         """Run the joined hook for the monitoring relation."""
         self._setup_monitoring()
+
+    def on_log_proxy_created(self, _):
+        proc = self._container.exec(["apt-get", "--yes", "update"])
+        proc.wait()
+        proc = self._container.exec(["apt-get", "--yes", "install", "rsyslog"])
+        proc.wait()
+
+        rsyslog_config = RSYSLOG_CONFIG.format(self.log_proxy.rsyslog_config)
+        self._container.push("/etc/rsyslog.conf", rsyslog_config, make_dirs=True)
+
+        if self._set_rsyslog_layer():
+            self._container.restart("rsyslog")
 
     def _setup_monitoring(self) -> None:
         # Turn on metrics exporting. This should be on on ALL NODES, since it does not
@@ -219,6 +246,29 @@ class CassandraOperatorCharm(CharmBase):
             self._container.add_layer("cassandra", layer, combine=True)
             return True
         return False
+
+    def _set_rsyslog_layer(self) -> bool:
+        if not self._container.can_connect():
+            return False
+        layer = {
+            "summary": "Rsyslog Layer",
+            "description": "pebble config layer for rsyslog",
+            "services": {
+                "rsyslog": {
+                    "override": "replace",
+                    "summary": "rsyslog",
+                    "command": "/usr/sbin/rsyslogd -n",
+                    "startup": "enabled",
+                },
+            },
+        }
+        services = self._container.get_plan().services
+        if services != layer["services"]:
+            self._container.add_layer("rsyslog", layer, combine=True)
+            return True
+        return False
+
+
 
     def _seeds(self) -> str:
         # The seeds should be the hostnames of the first 3 units.

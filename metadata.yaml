@@ -27,6 +27,9 @@ provides:
     interface: prometheus_scrape
   grafana-dashboard:
     interface: grafana_dashboard
+requires:
+  log_proxy:
+    interface: loki_push_api
 peers:
   cassandra-peers:
     interface: cassandra_peers

@@ -1,5 +1,8 @@
 # Cassandra Operator
 
+WARNING: This is not a production branch. It is used only for testing the loki log_proxy library.
+WARNING: For some reason you need to let cassandra reach idle before creating the log_proxy relation.
+
 ## Description
 
 Apache [Cassandra] is an open source NoSQL distributed database providing scalability, high
