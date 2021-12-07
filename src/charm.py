@@ -35,7 +35,8 @@ PROMETHEUS_EXPORTER_PATH = f"{PROMETHEUS_EXPORTER_DIR}/{PROMETHEUS_EXPORTER_FILE
 
 RSYSLOG_CONFIG = """
 module(load="imfile")
-input(type="imfile" File="/var/log/cassandra/*.log" Tag="cass")
+input(type="imfile" File="/var/log/cassandra/system.log" addMetadata="on" Tag="cass")
+input(type="imfile" File="/var/log/cassandra/gc.log" addMetadata="on" Tag="cass")
 
 {}
 """
@@ -71,7 +72,7 @@ class CassandraOperatorCharm(CharmBase):
         self.dashboard_provider = GrafanaDashboardProvider(self)
 
         try:
-            self.log_proxy = LogProxyConsumer(charm=self, log_type="syslog", container_name="cassandra")
+            self.log_proxy = LogProxyConsumer(charm=self, log_files=["/var/log/cassandra/debug.log"], syslog=True, container_name="cassandra")
         except PromtailDigestError as e:
             logger.error(str(e))
 
@@ -242,7 +243,7 @@ class CassandraOperatorCharm(CharmBase):
             },
         }
         services = self._container.get_plan().services
-        if services != layer["services"]:
+        if "cassandra" not in services or services["cassandra"] != layer["services"]["cassandra"]:
             self._container.add_layer("cassandra", layer, combine=True)
             return True
         return False
