@@ -226,11 +226,9 @@ class LogProxyConsumer(RelationManagerBase):
     def __init__(
         self,
         charm,
+        log_files: list,
         container_name: Optional[str],
         relation_name: str = DEFAULT_RELATION_NAME,
-        log_files: list = None,
-        syslog: bool = False,
-        syslog_port: int = 1514,
     ):
         super().__init__(charm, relation_name)
         self._stored.set_default(grafana_agents="{}")
@@ -238,9 +236,7 @@ class LogProxyConsumer(RelationManagerBase):
         self._relation_name = relation_name
         self._container_name = container_name
         self._container = self._get_container(container_name)
-        self._log_files = log_files or []
-        self._syslog_port = syslog_port
-        self._is_syslog = syslog
+        self._log_files = log_files
         self.framework.observe(
             self._charm.on.log_proxy_relation_created, self._on_log_proxy_relation_created
         )
@@ -270,7 +266,6 @@ class LogProxyConsumer(RelationManagerBase):
                 self._update_config(event)
                 self._update_agents_list(event)
                 self._add_pebble_layer()
-                self._container.restart(self._container_name)
                 self._container.restart(WORKLOAD_SERVICE_NAME)
             except HTTPError as e:
                 msg = "Promtail binary couldn't be download - {}".format(str(e))
@@ -370,11 +365,8 @@ class LogProxyConsumer(RelationManagerBase):
         """
         try:
             resource_path = self._charm.model.resources.fetch("promtail-bin")
-        except NameError as e:
-            if "invalid resource name" in str(e):
-                return False
-            else:
-                raise
+        except ModelError:
+            return False
 
         logger.info("Promtail binary file has been obtained from an attached resource.")
         self._push_binary_to_workload(resource_path)
@@ -593,51 +585,26 @@ class LogProxyConsumer(RelationManagerBase):
             A dict representing the `scrape_configs` section.
         """
         # TODO: use the JujuTopology object
-        job_name = "juju_{}_{}_{}".format(self._charm.model.name, self._charm.model.uuid, self._charm.model.app.name)
-        common_labels = {
-            "application": self._charm.app.name,
-            "model": self._charm.model.name,
-            "model_uuid": self._charm.model.uuid,
-            "charm_name": self._charm.meta.name,
-        }
-
-        scrape_configs = []
-
-        # Files config
-        labels = deepcopy(common_labels)
-        labels.update({
-            "job": job_name,
-            "__path__": "",
-        })
         config = {
             "targets": ["localhost"],
-            "labels": labels
+            "labels": {
+                "job": "juju_{}_{}_{}".format(
+                    self._charm.model.name,
+                    self._charm.model.uuid,
+                    self._charm.model.app.name,
+                ),
+                "__path__": "",
+            },
         }
-        scrape_config = {
-            "job_name": "system",
-            "static_configs": self._generate_static_configs(config),
+
+        return {
+            "scrape_configs": [
+                {
+                    "job_name": "system",
+                    "static_configs": self._generate_static_configs(config),
+                }
+            ]
         }
-        scrape_configs.append(scrape_config)
-
-        # Syslog config
-        if self._is_syslog:
-            syslog_labels = deepcopy(common_labels)
-            syslog_labels.update({"job": "syslog_{}".format(job_name)})
-            syslog_config = {
-                "job_name": "syslog",
-                "syslog": {
-                    "listen_address": "127.0.0.1:{}".format(self._syslog_port),
-                    "label_structured_data": True,
-                    "labels": syslog_labels,
-                },
-                #"relabel_configs": [{
-                #    "source_labels": [],
-                #    "target_label": "filename"
-                #}],
-            }
-            scrape_configs.append(syslog_config)
-
-        return {"scrape_configs": scrape_configs}
 
     def _generate_static_configs(self, config: dict) -> list:
         """Generates static_configs section.
@@ -653,14 +620,6 @@ class LogProxyConsumer(RelationManagerBase):
             static_configs.append(conf)
 
         return static_configs
-
-    @property
-    def syslog_port(self):
-        return self._syslog_port
-
-    @property
-    def rsyslog_config(self):
-        return 'action(type="omfwd" protocol="tcp" target="127.0.0.1" port="{}" Template="RSYSLOG_SyslogProtocol23Format" TCP_Framing="octet-counted")'.format(self._syslog_port)
 
 
 class LogProxyProvider(RelationManagerBase):
