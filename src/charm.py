@@ -72,7 +72,7 @@ class CassandraOperatorCharm(CharmBase):
         self.dashboard_provider = GrafanaDashboardProvider(self)
 
         try:
-            self.log_proxy = LogProxyConsumer(charm=self, log_files=["/var/log/cassandra/debug.log"], syslog=True, container_name="cassandra")
+            self.log_proxy = LogProxyConsumer(charm=self, log_files=["/var/log/cassandra/debug.log"], enable_syslog=True, container_name="cassandra")
         except PromtailDigestError as e:
             logger.error(str(e))
 
