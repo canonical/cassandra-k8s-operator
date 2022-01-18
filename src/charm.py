@@ -12,7 +12,7 @@ from typing import Optional
 import yaml
 from charms.cassandra_k8s.v0.cql import CassandraProvider
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
-from charms.loki_k8s.v0.log_proxy import LogProxyConsumer, PromtailDigestError
+from charms.loki_k8s.v0.loki_push_api import LogProxyConsumer, PromtailDigestError
 from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
 from ops.charm import CharmBase, ConfigChangedEvent, WorkloadEvent
 from ops.main import main
