@@ -72,7 +72,12 @@ class CassandraOperatorCharm(CharmBase):
         self.dashboard_provider = GrafanaDashboardProvider(self)
 
         try:
-            self.log_proxy = LogProxyConsumer(charm=self, log_files=["/var/log/cassandra/debug.log"], enable_syslog=True, container_name="cassandra")
+            self.log_proxy = LogProxyConsumer(
+                charm=self,
+                log_files=["/var/log/cassandra/debug.log"],
+                enable_syslog=True,
+                container_name="cassandra",
+            )
         except PromtailDigestError as e:
             logger.error(str(e))
 
@@ -268,8 +273,6 @@ class CassandraOperatorCharm(CharmBase):
             self._container.add_layer("rsyslog", layer, combine=True)
             return True
         return False
-
-
 
     def _seeds(self) -> str:
         # The seeds should be the hostnames of the first 3 units.
