@@ -4,6 +4,7 @@
 options:
   heap_size:
     default: 6G
+    type: string
     description: |
       Amount of memory to set to the Cassandra's JVM heap.
       Used for both minimum and maximum heap size (`-Xms` and `-Xmx` respectively).
