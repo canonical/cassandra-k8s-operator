@@ -12,6 +12,7 @@ from typing import Optional
 import yaml
 from charms.cassandra_k8s.v0.cql import CassandraProvider
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
+from charms.loki_k8s.v0.loki_push_api import LogProxyConsumer, PromtailDigestError
 from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
 from ops.charm import CharmBase, ConfigChangedEvent, WorkloadEvent
 from ops.main import main
@@ -60,6 +61,16 @@ class CassandraOperatorCharm(CharmBase):
         self.framework.observe(self.on["monitoring"].relation_broken, self.on_monitoring_broken)
 
         self.dashboard_provider = GrafanaDashboardProvider(self)
+
+        try:
+            self.log_proxy = LogProxyConsumer(
+                charm=self,
+                log_files=["/var/log/cassandra/debug.log"],
+                container_name="cassandra",
+            )
+        except PromtailDigestError as e:
+            logger.error(str(e))
+
         self.cassandra = Cassandra(charm=self)
         logging.getLogger("cassandra").setLevel(logging.CRITICAL)
 
@@ -215,7 +226,7 @@ class CassandraOperatorCharm(CharmBase):
             },
         }
         services = self._container.get_plan().services
-        if services != layer["services"]:
+        if "cassandra" not in services or services["cassandra"] != layer["services"]["cassandra"]:  # type: ignore
             self._container.add_layer("cassandra", layer, combine=True)
             return True
         return False
