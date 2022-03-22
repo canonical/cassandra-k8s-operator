@@ -1,0 +1,10 @@
+groups:
+  - name: alert_on_error
+    rules:
+      - alert: alert_on_error
+        expr: rate({%%juju_topology%%}|="ERROR"[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Logs found at ERROR level

@@ -57,5 +57,5 @@ module = ["ops.*"]
 follow_imports = "skip"
 
 [[tool.mypy.overrides]]
-module = ["charms.prometheus_k8s.v0.prometheus_scrape.*"]
+module = ["charms.prometheus_k8s.v0.prometheus_scrape.*", "charms.grafana_k8s.v0.grafana_dashboard.*"]
 follow_imports = "silent"

@@ -15,6 +15,7 @@ from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
 from charms.loki_k8s.v0.loki_push_api import LogProxyConsumer, PromtailDigestError
 from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
 from ops.charm import CharmBase, ConfigChangedEvent, WorkloadEvent
+from ops.framework import EventBase
 from ops.main import main
 from ops.model import ActiveStatus, BlockedStatus, MaintenanceStatus, ModelError
 from ops.pebble import APIError
@@ -74,12 +75,28 @@ class CassandraOperatorCharm(CharmBase):
         self.cassandra = Cassandra(charm=self)
         logging.getLogger("cassandra").setLevel(logging.CRITICAL)
 
+    def config_okay(self, event: EventBase) -> bool:
+        """Ensure required config values are provided and valid."""
+        if "heap_size" not in self.config:
+            self.unit.status = BlockedStatus('Config value "heap_size" required')
+            event.defer()
+            return False
+        heap_size = self.config["heap_size"]
+        if match(r"^\d+[KMG]$", heap_size, IGNORECASE) is None:
+            self.unit.status = BlockedStatus(f"Invalid Cassandra heap size setting: '{heap_size}'")
+            event.defer()
+            return False
+        return True
+
     def on_pebble_ready(self, event: WorkloadEvent) -> None:
         """Run the pebble ready hook.
 
         Args:
             event: the event object
         """
+        if not self.config_okay(event):
+            return
+
         if self._num_units() != self._goal_units():
             self.unit.status = MaintenanceStatus("Waiting for units")
             event.defer()
@@ -112,11 +129,11 @@ class CassandraOperatorCharm(CharmBase):
         Args:
             event: the event object
         """
-        heap_size = self.config["heap_size"]
-        if match(r"^\d+[KMG]$", heap_size, IGNORECASE) is None:
-            self.unit.status = BlockedStatus(f"Invalid Cassandra heap size setting: '{heap_size}'")
+        if not self.config_okay(event):
             return
-        if self._container.can_connect() and "cassandra" in self._container.get_plan().services:
+        if not self._container.can_connect():
+            return
+        if "cassandra" in self._container.get_plan().services and self._set_layer():
             self._container.restart("cassandra")
 
     def on_leader_elected(self, _):

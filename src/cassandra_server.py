@@ -9,6 +9,9 @@ import secrets
 import string
 from typing import List, Optional
 
+from ops.charm import CharmBase
+from ops.framework import EventBase
+
 from cassandra import ConsistencyLevel, InvalidRequest
 from cassandra.auth import PlainTextAuthProvider
 from cassandra.cluster import (
@@ -20,8 +23,6 @@ from cassandra.cluster import (
 )
 from cassandra.policies import RoundRobinPolicy
 from cassandra.query import SimpleStatement
-from ops.charm import CharmBase
-from ops.framework import EventBase
 
 CQL_PORT = 9042
 CQL_PROTOCOL_VERSION = 4
