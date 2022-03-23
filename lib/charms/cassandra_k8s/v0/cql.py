@@ -98,7 +98,7 @@ class CassandraConsumer(Object):
     """Cassandra consumer object."""
 
     def __init__(self, charm: CharmBase, name: str):
-        """Constructor fot the CassandraConsumer object.
+        """Constructor for the CassandraConsumer object.
 
         Args:
             charm: The charm object that instantiated this class.

@@ -5,7 +5,7 @@ for: 0m
 labels:
   severity: critical
 annotations:
-  summary: Cassandra node {{ $labels.juju_model }}/{{ $labels.juju_unit }} is experiencing client request unvailable write
+  summary: Cassandra node {{ $labels.juju_model }}/{{ $labels.juju_unit }} is experiencing client request unavailable write
   description: >
-    Cassandra Node {{ $labels.juju_model }} {{ $labels.juju_unit }} has experienced client request unvailable write over the last minute
+    Cassandra Node {{ $labels.juju_model }} {{ $labels.juju_unit }} has experienced client request unavailable write over the last minute
     LABELS = {{ $labels }}
