@@ -160,8 +160,10 @@ class CassandraOperatorCharm(CharmBase):
                 return
             self.provider.set_credentials(event.relation.id, creds)
 
-    def on_monitoring_created(self, _) -> None:
+    def on_monitoring_created(self, event) -> None:
         """Run the joined hook for the monitoring relation."""
+        if not self._container.can_connect():
+            event.defer()
         self._setup_monitoring()
 
     def _setup_monitoring(self) -> None:
