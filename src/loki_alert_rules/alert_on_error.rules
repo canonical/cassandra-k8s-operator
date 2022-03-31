@@ -2,8 +2,8 @@ groups:
   - name: alert_on_error
     rules:
       - alert: alert_on_error
-        expr: rate({%%juju_topology%%}|="ERROR"[5m]) > 0
-        for: 1m
+        expr: rate({%%juju_topology%%}|="ERROR"[1m]) > 0
+        for: 2m
         labels:
           severity: critical
         annotations:
