@@ -75,14 +75,13 @@ class CassandraOperatorCharm(CharmBase):
         self.cassandra = Cassandra(charm=self)
         logging.getLogger("cassandra").setLevel(logging.CRITICAL)
 
-    def config_okay(self, event: EventBase) -> bool:
+    def config_valid(self, event: EventBase) -> bool:
         """Ensure required config values are provided and valid."""
-        if "heap_size" not in self.config:
+        if (heap_size := self.config.get("heap_size")) is None:
             self.unit.status = BlockedStatus('Config value "heap_size" required')
             event.defer()
             return False
-        heap_size = self.config["heap_size"]
-        if match(r"^\d+[KMG]$", heap_size, IGNORECASE) is None:
+        if match(r"^\d+[KkMmGg]$", heap_size, IGNORECASE) is None:
             self.unit.status = BlockedStatus(f"Invalid Cassandra heap size setting: '{heap_size}'")
             event.defer()
             return False
@@ -94,7 +93,7 @@ class CassandraOperatorCharm(CharmBase):
         Args:
             event: the event object
         """
-        if not self.config_okay(event):
+        if not self.config_valid(event):
             return
 
         if self._num_units() != self._goal_units():
@@ -129,7 +128,7 @@ class CassandraOperatorCharm(CharmBase):
         Args:
             event: the event object
         """
-        if not self.config_okay(event):
+        if not self.config_valid(event):
             return
         if not self._container.can_connect():
             return
