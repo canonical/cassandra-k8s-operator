@@ -84,6 +84,7 @@ class TestCharm(unittest.TestCase):
     def setUp(self):
         self.harness = Harness(CassandraOperatorCharm)
         self.addCleanup(self.harness.cleanup)
+        self.harness.update_config({"heap_size": "1G"})
         self.harness.begin_with_initial_hooks()
         self.harness.set_leader(True)
 
@@ -144,14 +145,6 @@ class TestCharm(unittest.TestCase):
             )[0]["static_configs"][0]["targets"],
             ["*:9500"],
         )
-
-    @patch("ops.testing._TestingModelBackend.network_get")
-    @patch("ops.testing._TestingPebbleClient.list_files")
-    def test_heap_size_default(self, mock_net_get, mock_list_files):
-        cassandra_environment = self._start_cassandra_and_get_pebble_service().environment
-
-        self.assertEqual(cassandra_environment["JVM_OPTS"], "-Xms6G -Xmx6G")
-        self.assertEqual(self.harness.model.unit.status, ops.model.ActiveStatus())
 
     @patch("ops.testing._TestingModelBackend.network_get")
     @patch("ops.testing._TestingPebbleClient.list_files")

@@ -1,0 +1,31 @@
+name: Release to Edge
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  tests:
+    name: Run Tests
+    uses: ./.github/workflows/run_tests.yaml
+
+  release-to-charmhub:
+    name: Release to CharmHub
+    needs:
+      - tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+      - name: Select charmhub channel
+        uses: canonical/charming-actions/channel@1.0.3
+        id: channel
+      - name: Upload charm to charmhub
+        uses: canonical/charming-actions/upload-charm@1.0.3
+        with:
+          credentials: "${{ secrets.CHARMHUB_TOKEN }}"
+          github-token: "${{ secrets.GITHUB_TOKEN }}"
+          channel: "${{ steps.channel.outputs.name }}"

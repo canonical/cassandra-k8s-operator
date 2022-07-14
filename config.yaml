@@ -3,7 +3,6 @@
 
 options:
   heap_size:
-    default: 6G
     type: string
     description: |
       Amount of memory to set to the Cassandra's JVM heap.
@@ -11,5 +10,3 @@ options:
       Valid values are formed by an integer, followed by one of the following memory units:
       `k` (kilobytes), `m` (megabytes), `g` (gigabytes).
       Memory units can also be capitalized as `K`, `M`, `G`.
-      Notice that, since the numerical value of the setting must be an integer,
-      using `-Xmx512m` is valid, but `-Xmx0.5g` will cause an error.
